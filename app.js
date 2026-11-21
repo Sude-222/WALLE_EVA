@@ -1477,6 +1477,10 @@ async function triggerMusic(cmd) {
 
   const r = await sendRobotAction('play_song', { cmd });
   if (r && r._sent) {
+    if (r._via === 'ble') {
+      showToast('Sarki komutu Bluetooth ile robota iletildi...');
+      return;
+    }
     if (r.ok) {
       const track = (r.playing || s[currentSongIdx]).split('/').pop();
       appState.robotState.playingSong = track;
