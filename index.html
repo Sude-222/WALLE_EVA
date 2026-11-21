@@ -88,6 +88,9 @@
         <div class="stat-chip" id="hudStorageChip" title="Depolama doluluk orani">
           <span>DEP %0</span>
         </div>
+        <button class="px-btn sm" id="hudBleBtn" onclick="toggleRobotBle()" style="border-color:#38bdf8;color:#7dd3fc;">
+          BT BAGLAN
+        </button>
         <button class="px-btn eva sm" onclick="triggerEvaSurprise()">
           <span class="px-ico sm" data-ico="heart"></span> EVA KALP
         </button>
@@ -309,17 +312,18 @@
             </div>
 
             <div id="ctrlLinkBar" style="padding:7px 9px;border:2px solid rgba(103,212,255,0.45);background:rgba(6,18,36,0.78);font-size:12px;color:#bae6fd;margin-bottom:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:space-between;">
-              <span id="ctrlLinkMsg">Robot baglantisi kontrol ediliyor...</span>
+              <span id="ctrlLinkMsg">Internetin kesilmeden Bluetooth ile WALL-E'ye baglanabilirsin.</span>
               <div style="display:flex;gap:5px;flex-wrap:wrap;">
-                <button class="px-btn gold sm" onclick="openRobotDirect('http://192.168.4.1')">192.168.4.1 AC</button>
-                <button class="px-btn sm" onclick="openRobotDirect('http://walle.local')">walle.local AC</button>
-                <button class="px-btn green sm" onclick="syncRobotStatus(true)">BAGLAN</button>
+                <button class="px-btn green sm" id="bleConnectBtn" onclick="toggleRobotBle()">BLUETOOTH BAGLAN</button>
+                <button class="px-btn gold sm" onclick="openRobotDirect('http://192.168.4.1')">192.168.4.1</button>
+                <button class="px-btn sm" onclick="syncRobotStatus(true)">YENILE</button>
               </div>
             </div>
 
             <div style="padding:7px 9px;border:2px solid rgba(88,255,154,0.5);background:rgba(2,20,12,0.72);font-size:13px;color:var(--vfd-green);margin-bottom:8px;">
               PARCA: <span id="remoteSongLbl">...</span>
             </div>
+            <select class="px-in" id="remoteSongSel" style="display:none;margin-bottom:8px;" onchange="playSongByIdx(this.value)"></select>
 
             <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px;">
               <button class="console-key" onclick="triggerMusic('prev')">ONCEKI</button>
@@ -418,6 +422,14 @@
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
               <button class="px-btn green" style="flex:1;" onclick="saveBridgeSettings()">AYARLARI KAYDET</button>
               <button class="px-btn gold" style="flex:1;" onclick="openDirectLanRemote()">YEREL KUMANDA AC</button>
+            </div>
+
+            <div style="margin-top:14px;padding-top:10px;border-top:2px dashed rgba(246,191,66,0.4);">
+              <label class="px-lbl">BLUETOOTH UZERINDEN ROBOTA WI-FI / AI ANAHTARI GONDER</label>
+              <input type="text" class="px-in" id="bleCfgSsid" placeholder="Ev Wi-Fi veya Hotspot adi (2.4 GHz)" style="margin-bottom:6px;" />
+              <input type="password" class="px-in" id="bleCfgPass" placeholder="Wi-Fi sifresi" style="margin-bottom:6px;" />
+              <input type="password" class="px-in" id="bleCfgKey" placeholder="Gemini API Key (AIzza... veya AQ....)" style="margin-bottom:8px;" />
+              <button class="px-btn eva" style="width:100%;" onclick="sendRobotConfigOverBle()">BLUETOOTH ILE ROBOTA KAYDET</button>
             </div>
           </div>
         </div>

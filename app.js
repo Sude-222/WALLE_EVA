@@ -235,6 +235,16 @@ let currentSongIdx = 0;
 let activeWavAudio = null;
 let robotLinkOk = false;
 
+const BLE_SVC_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const BLE_RX_UUID  = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+const BLE_TX_UUID  = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+let bleDevice = null;
+let bleRxChar = null;
+let bleTxChar = null;
+let bleWriteQueue = Promise.resolve();
+let bleRxLineBuf = '';
+let pendingBleAiResolver = null;
+
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -1035,29 +1045,249 @@ async function toggleVoiceRecord() {
 }
 
 // ============================================================================
-// ROBOT KOPRUSU & KUMANDA
+// ROBOT KOPRUSU (BLUETOOTH LE + WI-FI + BULUT) & KUMANDA
 // ============================================================================
+function updateBleButtons(connected) {
+  const b1 = document.getElementById('bleConnectBtn');
+  const b2 = document.getElementById('hudBleBtn');
+  if (connected) {
+    if (b1) { b1.textContent = 'BT KES (BAGLI)'; b1.classList.remove('green'); b1.classList.add('danger'); }
+    if (b2) { b2.textContent = 'BT: BAGLI'; b2.style.borderColor = '#4ade80'; b2.style.color = '#4ade80'; }
+  } else {
+    if (b1) { b1.textContent = 'BLUETOOTH BAGLAN'; b1.classList.remove('danger'); b1.classList.add('green'); }
+    if (b2) { b2.textContent = 'BT BAGLAN'; b2.style.borderColor = '#38bdf8'; b2.style.color = '#7dd3fc'; }
+  }
+}
+
 function setRobotLinkStatus(ok, base = '', reason = '') {
   robotLinkOk = !!ok;
   const badge = document.getElementById('ctrlLinkBadge');
   const msg = document.getElementById('ctrlLinkMsg');
   if (!badge || !msg) return;
-  if (ok) {
-    badge.textContent = 'ROBOT BAGLI';
+  if (reason === 'ble') {
+    badge.textContent = 'BLUETOOTH BAGLI';
     badge.style.background = 'rgba(22,163,74,0.35)';
     badge.style.borderColor = '#4ade80';
-    msg.innerHTML = `<b style="color:#4ade80;">CANLI BAGLANTI AKTIF</b> (${escapeHtml(base)})`;
-  } else if (reason === 'mixed') {
-    badge.textContent = 'HTTPS ENGELI';
+    msg.innerHTML = `<b style="color:#4ade80;">BLUETOOTH LE AKTIF</b> (${escapeHtml(base)}) — Internetin kesilmeden robot kontrolu acik!`;
+  } else if (ok) {
+    badge.textContent = 'WI-FI BAGLI';
+    badge.style.background = 'rgba(22,163,74,0.35)';
+    badge.style.borderColor = '#4ade80';
+    msg.innerHTML = `<b style="color:#4ade80;">WI-FI BAGLANTI AKTIF</b> (${escapeHtml(base)})`;
+  } else if (!navigator.bluetooth) {
+    badge.textContent = 'iOS UYARI';
     badge.style.background = 'rgba(217,119,6,0.35)';
     badge.style.borderColor = '#fbbf24';
-    msg.innerHTML = 'GitHub (HTTPS) tarayicida yerel HTTP robotu engelliyor. Robot kumandasi icin <b>192.168.4.1 AC</b> veya <b>walle.local AC</b> tikla.';
+    msg.innerHTML = 'Bu tarayici (iPhone Safari) Web Bluetooth desteklemez. Bluetooth icin App Store\'dan ucretsiz <b>Bluefy</b> tarayicisiyla ac (Android/PC Chrome doğrudan baglanir).';
+  } else if (reason === 'mixed') {
+    badge.textContent = 'BT HAZIR';
+    badge.style.background = 'rgba(37,99,235,0.35)';
+    badge.style.borderColor = '#60a5fa';
+    msg.innerHTML = 'Internetin acikken robota baglanmak icin yesil <b>BLUETOOTH BAGLAN</b> butonuna bas (<b>WALL-E Robot</b> sec).';
   } else {
     badge.textContent = 'BAGLI DEGIL';
     badge.style.background = 'rgba(220,38,38,0.3)';
     badge.style.borderColor = '#f87171';
-    msg.innerHTML = `Robot yanit vermedi (${escapeHtml(base || 'WALLE-KUMANDA Wi-Fi')}). Baglanmak icin sagdaki yerel kumandayi ac.`;
+    msg.innerHTML = 'Internetin gitmeden kontrol etmek icin <b>BLUETOOTH BAGLAN</b> butonundan <b>WALL-E Robot</b> cihazini sec.';
   }
+}
+
+function populateRemoteSongSelect(songs, activeIdx = -1) {
+  const sel = document.getElementById('remoteSongSel');
+  if (!sel || !songs || !songs.length) return;
+  sel.innerHTML = '';
+  songs.forEach((name, i) => {
+    const o = document.createElement('option');
+    o.value = String(i);
+    o.textContent = `${i + 1}. ${name}`;
+    if (i === activeIdx) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.style.display = 'block';
+}
+
+function handleBleLine(line) {
+  if (!line) return;
+  if (line.startsWith('ST:')) {
+    try {
+      const s = JSON.parse(line.slice(3));
+      if (s.l1 !== undefined) updateHudLcd(s.l1, s.l2 || '');
+      if (s.bat !== undefined) {
+        appState.robotState.batPct = s.bat;
+        renderMeters();
+      }
+      if (s.play !== undefined) {
+        appState.robotState.playingSong = s.play || 'HAZIR (BEKLEMEDE)';
+        const lbl = document.getElementById('remoteSongLbl');
+        if (lbl) lbl.textContent = appState.robotState.playingSong;
+      }
+      if (s.si !== undefined && s.si >= 0) {
+        currentSongIdx = s.si;
+        const sel = document.getElementById('remoteSongSel');
+        if (sel && document.activeElement !== sel && sel.options.length > s.si) sel.value = String(s.si);
+      }
+      if (s.dn !== undefined) {
+        appState.robotState.dance = !!s.dn;
+        const db = document.getElementById('danceToggleBtn');
+        if (db) db.textContent = s.dn ? 'SARKIDA DANS: ACIK' : 'SARKIDA DANS: KAPALI';
+      }
+      if (s.vol !== undefined) {
+        appState.robotState.vol = s.vol;
+        const vr = document.getElementById('volRange');
+        const vo = document.getElementById('volOut');
+        if (vr && document.activeElement !== vr) vr.value = s.vol;
+        if (vo) vo.textContent = s.vol;
+      }
+      if (s.spd !== undefined) {
+        appState.robotState.speed = s.spd;
+        const sr = document.getElementById('spdRange');
+        const po = document.getElementById('pwmOut');
+        if (sr && document.activeElement !== sr) sr.value = s.spd;
+        if (po) po.textContent = s.spd;
+      }
+      const msg = document.getElementById('ctrlLinkMsg');
+      if (msg && bleRxChar) {
+        const micTxt = s.mic ? `Mic: OK (${s.pk || 0})` : 'Mic: Sinyal Yok';
+        const aiTxt = s.ai ? 'AI: Hazir' : 'AI: Ayarlardan Wi-Fi/Key girin';
+        msg.innerHTML = `<b style="color:#4ade80;">BLUETOOTH BAGLI</b> | ${micTxt} | ${aiTxt}`;
+      }
+    } catch (e) {}
+  } else if (line.startsWith('SG:')) {
+    const raw = line.slice(3).trim();
+    if (raw) {
+      const list = raw.split('|').filter(Boolean);
+      if (list.length) {
+        appState.songs = list;
+        populateRemoteSongSelect(list, currentSongIdx);
+      }
+    }
+  } else if (line.startsWith('AI:')) {
+    const ans = line.slice(3).trim();
+    if (pendingBleAiResolver) {
+      const res = pendingBleAiResolver;
+      pendingBleAiResolver = null;
+      res({ ok: true, answer: ans, _sent: true, _via: 'ble' });
+    }
+    const out = document.getElementById('remoteAiOut');
+    if (out) out.textContent = '> ' + ans;
+    updateHudLcd('BULUNAN CEVAP>>>', ans.slice(0, 16));
+    playRetroBeep('happy');
+  } else if (line.startsWith('ERR:')) {
+    const err = line.slice(4).trim();
+    if (pendingBleAiResolver) {
+      const res = pendingBleAiResolver;
+      pendingBleAiResolver = null;
+      res({ ok: false, error: err, _sent: true, _via: 'ble' });
+    }
+    showToast('ROBOT UYARI: ' + err);
+  } else if (line.startsWith('OK:')) {
+    const msg = line.slice(3).trim();
+    if (msg && !msg.startsWith('sfx:')) showToast('ROBOT: ' + msg);
+  }
+}
+
+function onBleNotify(ev) {
+  const chunk = new TextDecoder().decode(ev.target.value);
+  bleRxLineBuf += chunk;
+  let nl;
+  while ((nl = bleRxLineBuf.indexOf('\n')) >= 0) {
+    const line = bleRxLineBuf.slice(0, nl).trim();
+    bleRxLineBuf = bleRxLineBuf.slice(nl + 1);
+    handleBleLine(line);
+  }
+}
+
+function bleWriteRaw(line) {
+  if (!bleRxChar) return Promise.resolve(false);
+  bleWriteQueue = bleWriteQueue.then(async () => {
+    if (!bleRxChar) return false;
+    const payload = new TextEncoder().encode(line + '\n');
+    if (bleRxChar.writeValueWithoutResponse) {
+      await bleRxChar.writeValueWithoutResponse(payload);
+    } else {
+      await bleRxChar.writeValue(payload);
+    }
+    return true;
+  }).catch(() => false);
+  return bleWriteQueue;
+}
+
+async function toggleRobotBle() {
+  if (bleDevice && bleDevice.gatt && bleDevice.gatt.connected) {
+    bleDevice.gatt.disconnect();
+    return;
+  }
+  await connectRobotBle();
+}
+
+async function connectRobotBle() {
+  if (!navigator.bluetooth) {
+    setRobotLinkStatus(false, '', 'nobt');
+    showToast('iPhone Safari Bluetooth desteklemez: Bluefy tarayicisini kullanin veya Android/PC Chrome acin.');
+    return false;
+  }
+  try {
+    showToast('WALL-E Bluetooth araniyor...');
+    bleDevice = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [BLE_SVC_UUID] }, { namePrefix: 'WALL-E' }],
+      optionalServices: [BLE_SVC_UUID]
+    });
+    bleDevice.addEventListener('gattserverdisconnected', () => {
+      bleRxChar = null;
+      bleTxChar = null;
+      bleRxLineBuf = '';
+      updateBleButtons(false);
+      setRobotLinkStatus(false, '', 'offline');
+      showToast('Bluetooth baglantisi kesildi');
+    });
+    const server = await bleDevice.gatt.connect();
+    const svc = await server.getPrimaryService(BLE_SVC_UUID);
+    bleRxChar = await svc.getCharacteristic(BLE_RX_UUID);
+    bleTxChar = await svc.getCharacteristic(BLE_TX_UUID);
+    await bleTxChar.startNotifications();
+    bleTxChar.addEventListener('characteristicvaluechanged', onBleNotify);
+    updateBleButtons(true);
+    setRobotLinkStatus(true, bleDevice.name || 'WALL-E Robot', 'ble');
+    showToast('BLUETOOTH BAGLANDI! Internetin acik, robot hazir.');
+    await bleWriteRaw('songs');
+    await bleWriteRaw('state');
+    return true;
+  } catch (e) {
+    if (e && e.name !== 'NotFoundError') {
+      showToast('Bluetooth hatasi: ' + (e.message || e));
+    }
+    return false;
+  }
+}
+
+function sendRobotConfigOverBle() {
+  if (!bleRxChar) {
+    showToast('Once ustten BLUETOOTH BAGLAN ile robota baglan!');
+    return;
+  }
+  const ssid = document.getElementById('bleCfgSsid').value.trim();
+  const pass = document.getElementById('bleCfgPass').value.trim();
+  const key  = document.getElementById('bleCfgKey').value.trim();
+  if (ssid) bleWriteRaw(`cfg:wifi:${ssid}|${pass}`);
+  if (key.length >= 10) bleWriteRaw(`cfg:key:${key}`);
+  showToast('Ayarlar Bluetooth ile robota gonderildi!');
+}
+
+function playSongByIdx(idx) {
+  if (idx === '' || idx === undefined) return;
+  currentSongIdx = Number(idx);
+  const s = appState.songs || [];
+  const track = s[currentSongIdx] || `Parca #${currentSongIdx + 1}`;
+  sendRobotAction('play_song', { idx: currentSongIdx }).then(r => {
+    if (r && r._sent) {
+      appState.robotState.playingSong = track;
+      document.getElementById('remoteSongLbl').textContent = track;
+      updateHudLcd('MUZIK CALIYOR', track.slice(0, 16));
+      showToast(`ROBOTTA CALIYOR: ${track}`);
+    } else {
+      showToast('Once BLUETOOTH BAGLAN ile robota baglan!');
+    }
+  });
 }
 
 function openRobotDirect(url) {
@@ -1069,13 +1299,55 @@ function openRobotDirect(url) {
 }
 
 async function sendRobotAction(endpoint, params = {}) {
+  // 1. ÖNCELİK: BLUETOOTH LE (İnternet hiç kesilmeden!)
+  if (bleRxChar) {
+    let bleLine = '';
+    if (endpoint === 'drive') {
+      bleLine = (params.cmd === 'speed') ? `drive:speed:${params.val}` : `drive:${params.cmd}`;
+    } else if (endpoint === 'sfx') {
+      bleLine = `sfx:${params.n || 'walle'}`;
+    } else if (endpoint === 'play_song') {
+      bleLine = (params.idx !== undefined) ? `song:idx:${params.idx}` : `song:${params.cmd || 'rand'}`;
+    } else if (endpoint === 'mode') {
+      bleLine = `mode:${params.m || 'solar'}`;
+    } else if (endpoint === 'dance') {
+      bleLine = 'dance';
+    } else if (endpoint === 'volume') {
+      bleLine = `vol:${params.val}`;
+    } else if (endpoint === 'from_eva') {
+      bleLine = `from_eva:${params.msg || 'Seni cok ozledim!'}`;
+    } else if (endpoint === 'listen') {
+      bleLine = `listen:${params.mode || 'auto'}`;
+    } else if (endpoint === 'state') {
+      bleLine = 'state';
+    } else if (endpoint === 'songs') {
+      bleLine = 'songs';
+    } else if (endpoint === 'ask') {
+      const q = (params.q || '').trim();
+      if (!q) return { ok: false, _sent: false };
+      return await new Promise(async (resolve) => {
+        const timer = setTimeout(() => {
+          if (pendingBleAiResolver) { pendingBleAiResolver = null; resolve({ ok: true, _sent: true, _via: 'ble' }); }
+        }, 12000);
+        pendingBleAiResolver = (data) => { clearTimeout(timer); resolve(data); };
+        await bleWriteRaw('ask:' + q);
+      });
+    }
+
+    if (bleLine) {
+      const ok = await bleWriteRaw(bleLine);
+      if (ok) return { ok: true, _sent: true, _via: 'ble' };
+    }
+  }
+
+  // 2. YEREL HTTP / HTTPS KÖPRÜSÜ
   const qs = new URLSearchParams(params).toString();
   const base = (appState.lanUrl || '').replace(/\/$/, '');
 
   if (base && (base.startsWith('http://') || base.startsWith('https://'))) {
     try {
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 2800);
+      const timer = setTimeout(() => ctrl.abort(), 2500);
       const r = await fetch(`${base}/api/${endpoint}${qs ? '?' + qs : ''}`, {
         mode: 'cors',
         signal: ctrl.signal
@@ -1109,13 +1381,18 @@ async function sendRobotAction(endpoint, params = {}) {
 }
 
 async function syncRobotStatus(manualClick = false) {
+  if (bleRxChar) {
+    await bleWriteRaw('songs');
+    await bleWriteRaw('state');
+    if (manualClick) showToast('Bluetooth ile robot durumu yenilendi!');
+    return;
+  }
   const s = await sendRobotAction('state');
   if (!s || !s._sent) {
     if (manualClick) {
-      const isMixed = location.protocol === 'https:' && (appState.lanUrl || '').startsWith('http://');
-      showToast(isMixed
-        ? 'TARAYICI HTTPS->HTTP ENGELLI: 192.168.4.1 AC BUTONUNU KULLAN'
-        : 'ROBOTA BAGLANILAMADI: WALLE-KUMANDA AGINA BAGLI MISIN?');
+      showToast(navigator.bluetooth
+        ? 'Once BLUETOOTH BAGLAN butonuna basip WALL-E Robot sec!'
+        : 'iPhone Safari Bluetooth desteklemez -> Bluefy tarayicisini kullanin.');
     }
     return;
   }
@@ -1133,6 +1410,7 @@ async function syncRobotStatus(manualClick = false) {
   const sg = await sendRobotAction('songs');
   if (sg && sg.songs && sg.songs.length) {
     appState.songs = sg.songs;
+    populateRemoteSongSelect(sg.songs, currentSongIdx);
   }
   if (manualClick) showToast('ROBOT CANLI DURUMU ESITLENDI!');
 }
@@ -1217,7 +1495,7 @@ async function triggerMusic(cmd) {
   document.getElementById('remoteSongLbl').textContent = appState.robotState.playingSong;
   updateHudLcd('ROBOT BAGLI DEGIL', track.slice(0, 16));
   playRetroBeep('happy');
-  showToast('ROBOT BAGLI DEGIL! SD sarkilar icin 192.168.4.1 AC butonuna tikla.');
+  showToast('ROBOT BAGLI DEGIL! BLUETOOTH BAGLAN butonuna basip WALL-E Robot sec.');
 }
 
 function toggleDance() {
@@ -1331,5 +1609,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (activeRole && ACCOUNTS[activeRole]) {
     applyAccountUI(activeRole);
   }
+  setRobotLinkStatus(false, '', navigator.bluetooth ? 'mixed' : 'nobt');
   syncRobotStatus(false);
 });
