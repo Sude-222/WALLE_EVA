@@ -305,7 +305,16 @@
                 <span class="px-ico" data-ico="music"></span>
                 <span>MUZIK, SES EFEKTI &amp; AI</span>
               </div>
-              <span class="sec-badge">WALLE AUDIO</span>
+              <span class="sec-badge" id="ctrlLinkBadge">YEREL MOD</span>
+            </div>
+
+            <div id="ctrlLinkBar" style="padding:7px 9px;border:2px solid rgba(103,212,255,0.45);background:rgba(6,18,36,0.78);font-size:12px;color:#bae6fd;margin-bottom:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:space-between;">
+              <span id="ctrlLinkMsg">Robot baglantisi kontrol ediliyor...</span>
+              <div style="display:flex;gap:5px;flex-wrap:wrap;">
+                <button class="px-btn gold sm" onclick="openRobotDirect('http://192.168.4.1')">192.168.4.1 AC</button>
+                <button class="px-btn sm" onclick="openRobotDirect('http://walle.local')">walle.local AC</button>
+                <button class="px-btn green sm" onclick="syncRobotStatus(true)">BAGLAN</button>
+              </div>
             </div>
 
             <div style="padding:7px 9px;border:2px solid rgba(88,255,154,0.5);background:rgba(2,20,12,0.72);font-size:13px;color:var(--vfd-green);margin-bottom:8px;">
@@ -316,7 +325,7 @@
               <button class="console-key" onclick="triggerMusic('prev')">ONCEKI</button>
               <button class="console-key green" onclick="triggerMusic('rand')">RASTGELE</button>
               <button class="console-key" onclick="triggerMusic('next')">SONRAKI</button>
-              <button class="console-key pink" onclick="sendRobotAction('mode',{m:'stop_music'})">DUR</button>
+              <button class="console-key pink" onclick="triggerMusic('stop')">DUR</button>
             </div>
 
             <button class="console-key gold" id="danceToggleBtn" style="width:100%;margin-bottom:10px;" onclick="toggleDance()">SARKIDA DANS: ACIK</button>

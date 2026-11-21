@@ -231,6 +231,9 @@ let pendingPhotos = [];
 let mediaRec = null;
 let recChunks = [];
 let isRecording = false;
+let currentSongIdx = 0;
+let activeWavAudio = null;
+let robotLinkOk = false;
 
 function loadState() {
   try {
@@ -408,10 +411,40 @@ function showToast(msg) {
 }
 
 function playRetroBeep(kind) {
+  const wavMap = {
+    eva: 'sounds/eva.wav',
+    walle: 'sounds/walle.wav',
+    happy: 'sounds/happy.wav',
+    tada: 'sounds/tada.wav',
+    suprise: 'sounds/suprise.wav',
+    surprised: 'sounds/suprise.wav',
+    startup: 'sounds/startup.wav'
+  };
+  const src = wavMap[kind];
+  if (src) {
+    try {
+      if (activeWavAudio) {
+        activeWavAudio.pause();
+        activeWavAudio.currentTime = 0;
+      }
+      const au = new Audio(src);
+      au.volume = Math.max(0.15, Math.min(1.0, (appState.robotState.vol || 85) / 100));
+      activeWavAudio = au;
+      const p = au.play();
+      if (p && p.catch) p.catch(() => playSynthFallback(kind));
+      return true;
+    } catch (e) {}
+  }
+  playSynthFallback(kind);
+  return false;
+}
+
+function playSynthFallback(kind) {
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     if (!window._ac) window._ac = new AC();
+    if (window._ac.state === 'suspended') window._ac.resume();
     const ctx = window._ac;
     const now = ctx.currentTime;
     const seqs = {
@@ -429,7 +462,7 @@ function playRetroBeep(kind) {
       const gain = ctx.createGain();
       osc.type = 'square';
       osc.frequency.setValueAtTime(freq, t);
-      gain.gain.setValueAtTime(0.045, t);
+      gain.gain.setValueAtTime(0.08, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -928,10 +961,19 @@ function sendWhisperToWalle() {
   if (!val) { showToast('MESAJ YAZIN'); return; }
   const clean = val.toUpperCase();
   updateHudLcd(clean.slice(0, 16), clean.slice(16, 32) || 'HEDEF >> EVA');
-  sendRobotAction('sfx', { n: 'eva' });
-  sendRobotAction('ask', { q: val });
   playRetroBeep('eva');
-  showToast('MESAJ WALL-E GOGUS EKRANINA GONDERILDI');
+  if (activeRole === 'eva') {
+    sendRobotAction('from_eva', { msg: val }).then(r => {
+      if (r && r._sent) showToast('MESAJ EVA OLARAK ROBOTA ILETILDI');
+      else showToast('ROBOT BAGLI DEGIL: EKRAN ONIZLEME GUNCELLENDI');
+    });
+  } else {
+    sendRobotAction('sfx', { n: 'eva' });
+    sendRobotAction('ask', { q: val }).then(r => {
+      if (r && r._sent) showToast('MESAJ WALL-E GOGUS EKRANINA GONDERILDI');
+      else showToast('ROBOT BAGLI DEGIL: YEREL KUMANDAYI (192.168.4.1) ACIN');
+    });
+  }
 }
 
 function renderVoices() {
@@ -995,42 +1037,122 @@ async function toggleVoiceRecord() {
 // ============================================================================
 // ROBOT KOPRUSU & KUMANDA
 // ============================================================================
+function setRobotLinkStatus(ok, base = '', reason = '') {
+  robotLinkOk = !!ok;
+  const badge = document.getElementById('ctrlLinkBadge');
+  const msg = document.getElementById('ctrlLinkMsg');
+  if (!badge || !msg) return;
+  if (ok) {
+    badge.textContent = 'ROBOT BAGLI';
+    badge.style.background = 'rgba(22,163,74,0.35)';
+    badge.style.borderColor = '#4ade80';
+    msg.innerHTML = `<b style="color:#4ade80;">CANLI BAGLANTI AKTIF</b> (${escapeHtml(base)})`;
+  } else if (reason === 'mixed') {
+    badge.textContent = 'HTTPS ENGELI';
+    badge.style.background = 'rgba(217,119,6,0.35)';
+    badge.style.borderColor = '#fbbf24';
+    msg.innerHTML = 'GitHub (HTTPS) tarayicida yerel HTTP robotu engelliyor. Robot kumandasi icin <b>192.168.4.1 AC</b> veya <b>walle.local AC</b> tikla.';
+  } else {
+    badge.textContent = 'BAGLI DEGIL';
+    badge.style.background = 'rgba(220,38,38,0.3)';
+    badge.style.borderColor = '#f87171';
+    msg.innerHTML = `Robot yanit vermedi (${escapeHtml(base || 'WALLE-KUMANDA Wi-Fi')}). Baglanmak icin sagdaki yerel kumandayi ac.`;
+  }
+}
+
+function openRobotDirect(url) {
+  appState.lanUrl = url;
+  const inp = document.getElementById('cfgLanUrl');
+  if (inp) inp.value = url;
+  saveState();
+  window.open(url, '_blank');
+}
+
 async function sendRobotAction(endpoint, params = {}) {
   const qs = new URLSearchParams(params).toString();
   const base = (appState.lanUrl || '').replace(/\/$/, '');
 
-  if (base && location.protocol === 'http:' && !base.includes('127.0.0.1')) {
+  if (base && (base.startsWith('http://') || base.startsWith('https://'))) {
     try {
-      const r = await fetch(`${base}/api/${endpoint}${qs ? '?' + qs : ''}`);
-      return await r.json();
-    } catch (e) {}
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 2800);
+      const r = await fetch(`${base}/api/${endpoint}${qs ? '?' + qs : ''}`, {
+        mode: 'cors',
+        signal: ctrl.signal
+      });
+      clearTimeout(timer);
+      if (r.ok) {
+        const data = await r.json().catch(() => ({ ok: true }));
+        setRobotLinkStatus(true, base);
+        return { ...data, _sent: true, _via: 'lan' };
+      }
+    } catch (e) {
+      const isMixed = location.protocol === 'https:' && base.startsWith('http://');
+      setRobotLinkStatus(false, base, isMixed ? 'mixed' : 'offline');
+    }
+  } else {
+    setRobotLinkStatus(false, base, 'offline');
   }
 
   if (appState.cloudDbUrl && appState.cloudDbUrl.startsWith('https://')) {
     try {
       const dbBase = appState.cloudDbUrl.replace(/\/$/, '');
-      await fetch(`${dbBase}/walle_cmd.json`, {
+      const r = await fetch(`${dbBase}/walle_cmd.json`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ endpoint, params, ts: Date.now() })
       });
+      if (r.ok) return { ok: true, _sent: true, _via: 'cloud' };
     } catch (e) {}
   }
-  return null;
+  return { ok: false, _sent: false };
+}
+
+async function syncRobotStatus(manualClick = false) {
+  const s = await sendRobotAction('state');
+  if (!s || !s._sent) {
+    if (manualClick) {
+      const isMixed = location.protocol === 'https:' && (appState.lanUrl || '').startsWith('http://');
+      showToast(isMixed
+        ? 'TARAYICI HTTPS->HTTP ENGELLI: 192.168.4.1 AC BUTONUNU KULLAN'
+        : 'ROBOTA BAGLANILAMADI: WALLE-KUMANDA AGINA BAGLI MISIN?');
+    }
+    return;
+  }
+  if (s.lcd1 !== undefined) updateHudLcd(s.lcd1, s.lcd2 || '');
+  if (s.bat_pct !== undefined) {
+    appState.robotState.batPct = s.bat_pct;
+    renderMeters();
+  }
+  if (s.playing_song !== undefined) {
+    appState.robotState.playingSong = s.playing_song || 'DURDURULDU';
+    const lbl = document.getElementById('remoteSongLbl');
+    if (lbl) lbl.textContent = appState.robotState.playingSong;
+  }
+  if (s.song_idx !== undefined && s.song_idx >= 0) currentSongIdx = s.song_idx;
+  const sg = await sendRobotAction('songs');
+  if (sg && sg.songs && sg.songs.length) {
+    appState.songs = sg.songs;
+  }
+  if (manualClick) showToast('ROBOT CANLI DURUMU ESITLENDI!');
 }
 
 function triggerEvaSurprise() {
   updateHudLcd('MESAJ GONDERIYOR', 'HEDEF >>> EVA');
-  playRetroBeep('tada');
-  sendRobotAction('listen', { mode: 'eva' });
-  showToast('EVA SURPRIZI TETIKLENDI [360 DONUS + SES]');
+  playRetroBeep('eva');
+  sendRobotAction('listen', { mode: 'eva' }).then(r => {
+    if (r && r._sent) showToast('EVA SURPRIZI ROBOTA GONDERILDI [360 DONUS + EVA!]');
+    else showToast('EVA SESI CALINDI (Robot icin 192.168.4.1 ac)');
+  });
 }
 
 function triggerSfx(name) {
   playRetroBeep(name);
   updateHudLcd('WALL-E SES', `EFEKT: ${name.toUpperCase()}`);
-  sendRobotAction('sfx', { n: name });
-  showToast(`SES EFEKTI: ${name.toUpperCase()}`);
+  sendRobotAction('sfx', { n: name }).then(r => {
+    if (r && r._sent) showToast(`ROBOTTA SES CALINDI: ${name.toUpperCase()}`);
+    else showToast(`SES ONIZLEME CALINDI: ${name.toUpperCase()} (Robot bagli degil)`);
+  });
 }
 
 function sendDrive(cmd) {
@@ -1055,18 +1177,47 @@ function sendVol(val) {
   sendRobotAction('volume', { val });
 }
 
-function triggerMusic(cmd) {
-  const s = appState.songs;
-  let idx = 0;
-  if (cmd === 'next') idx = 1;
-  else if (cmd === 'rand') idx = Math.floor(Math.random() * s.length);
-  const track = s[idx % s.length];
-  appState.robotState.playingSong = track;
-  document.getElementById('remoteSongLbl').textContent = track;
-  updateHudLcd('MUZIK CALIYOR', track.slice(0, 16));
+async function triggerMusic(cmd) {
+  if (cmd === 'stop') {
+    if (activeWavAudio) { activeWavAudio.pause(); activeWavAudio.currentTime = 0; }
+    appState.robotState.playingSong = 'DURDURULDU';
+    document.getElementById('remoteSongLbl').textContent = 'DURDURULDU';
+    updateHudLcd('WALLE DINLEMEDE', 'MUZIK DURDU');
+    const r = await sendRobotAction('mode', { m: 'stop_music' });
+    showToast(r && r._sent ? 'ROBOT MUZIGI DURDURULDU' : 'ROBOT BAGLI DEGIL - DURDURULDU');
+    return;
+  }
+
+  const s = appState.songs && appState.songs.length ? appState.songs : ['1.mp3', '2.mp3', '3.mp3'];
+  if (cmd === 'next') currentSongIdx = (currentSongIdx + 1) % s.length;
+  else if (cmd === 'prev') currentSongIdx = (currentSongIdx - 1 + s.length) % s.length;
+  else if (cmd === 'rand') {
+    let nextIdx = Math.floor(Math.random() * s.length);
+    if (s.length > 1 && nextIdx === currentSongIdx) nextIdx = (nextIdx + 1) % s.length;
+    currentSongIdx = nextIdx;
+  }
+
+  const r = await sendRobotAction('play_song', { cmd });
+  if (r && r._sent) {
+    if (r.ok) {
+      const track = (r.playing || s[currentSongIdx]).split('/').pop();
+      appState.robotState.playingSong = track;
+      document.getElementById('remoteSongLbl').textContent = track;
+      updateHudLcd('MUZIK CALIYOR', track.slice(0, 16));
+      playRetroBeep('happy');
+      showToast(`ROBOTTA CALIYOR: ${track}`);
+    } else {
+      showToast(r.error || 'SD KARTTA SARKI BULUNAMADI');
+    }
+    return;
+  }
+
+  const track = s[currentSongIdx % s.length];
+  appState.robotState.playingSong = `${track} (ONIZLEME)`;
+  document.getElementById('remoteSongLbl').textContent = appState.robotState.playingSong;
+  updateHudLcd('ROBOT BAGLI DEGIL', track.slice(0, 16));
   playRetroBeep('happy');
-  sendRobotAction('play_song', { cmd });
-  showToast(`MUZIK: ${track}`);
+  showToast('ROBOT BAGLI DEGIL! SD sarkilar icin 192.168.4.1 AC butonuna tikla.');
 }
 
 function toggleDance() {
@@ -1180,4 +1331,5 @@ document.addEventListener('DOMContentLoaded', () => {
   if (activeRole && ACCOUNTS[activeRole]) {
     applyAccountUI(activeRole);
   }
+  syncRobotStatus(false);
 });
