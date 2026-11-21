@@ -852,7 +852,8 @@ function compressImageFile(file) {
 }
 
 async function handlePhotoUpload(files, addToCurrentPin = false) {
-  const arr = Array.from(files).slice(0, 3);
+  const arr = Array.from(files);
+  if (!arr.length) return;
   const compressed = [];
   for (const f of arr) compressed.push(await compressImageFile(f));
 
@@ -862,13 +863,13 @@ async function handlePhotoUpload(files, addToCurrentPin = false) {
       showToast('ONCE HARITADAN BIR SEHIR EKLEYIN');
       return;
     }
-    pin.photos = [...(pin.photos || []), ...compressed].slice(0, 6);
+    pin.photos = [...(pin.photos || []), ...compressed];
     saveState();
     renderMapMarkers();
     renderPinPillsAndDetail();
-    showToast('FOTOGRAFLAR ANIYA EKLENDI');
+    showToast(`${compressed.length} FOTOGRAF ANIYA EKLENDI`);
   } else {
-    pendingPhotos = compressed;
+    pendingPhotos = [...pendingPhotos, ...compressed];
     document.getElementById('pinPhotoPreview').textContent = `${pendingPhotos.length} FOTOGRAF HAZIR`;
   }
 }
@@ -885,8 +886,9 @@ function saveNewPin() {
     type: document.getElementById('pinTypeInput').value,
     date: (document.getElementById('pinDateInput').value.trim() || 'YENI ANI').toUpperCase(),
     note: document.getElementById('pinNoteInput').value.trim() || 'Birlikte guzel bir ani.',
-    photos: pendingPhotos
+    photos: [...pendingPhotos]
   };
+  pendingPhotos = [];
   if (tempSearchMarker && mapObj) {
     mapObj.removeLayer(tempSearchMarker);
     tempSearchMarker = null;

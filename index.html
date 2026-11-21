@@ -176,7 +176,7 @@
             <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:4px;">
               <label class="px-btn sm" style="cursor:pointer;">
                 <span class="px-ico sm" data-ico="camera"></span> FOTO EKLE
-                <input type="file" accept="image/*" multiple style="display:none;" onchange="handlePhotoUpload(this.files, true)" />
+                <input type="file" accept="image/*" multiple style="display:none;" onchange="handlePhotoUpload(this.files, true); this.value='';" />
               </label>
               <button class="px-btn sm" onclick="openEditNoteModal()">NOT DUZENLE</button>
               <button class="px-btn green sm" onclick="sendCurrentPinToLcd()">
@@ -500,8 +500,8 @@
       <textarea class="px-in" id="pinNoteInput" placeholder="Burada neler yaptik?"></textarea>
 
       <label class="px-btn sm" style="margin-top:8px;cursor:pointer;">
-        <span class="px-ico sm" data-ico="camera"></span> FOTOGRAF SEC [MAX 3]
-        <input type="file" accept="image/*" multiple style="display:none;" onchange="handlePhotoUpload(this.files, false)" />
+        <span class="px-ico sm" data-ico="camera"></span> FOTOGRAF SEC
+        <input type="file" accept="image/*" multiple style="display:none;" onchange="handlePhotoUpload(this.files, false); this.value='';" />
       </label>
       <div id="pinPhotoPreview" style="font-size:12px;color:var(--eva-cyan);margin-top:4px;">0 FOTOGRAF SECILDI</div>
 
