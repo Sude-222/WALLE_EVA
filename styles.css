@@ -502,8 +502,10 @@ body.locked .auth-overlay {
   gap: 8px;
 }
 .mem-photo-wrap {
+  position: relative;
   border: 2px solid var(--border-gold);
   background: #040814;
+  min-height: 84px;
   aspect-ratio: 1 / 1;
   overflow: hidden;
   cursor: pointer;

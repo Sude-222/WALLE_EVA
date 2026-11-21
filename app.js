@@ -245,6 +245,49 @@ let bleWriteQueue = Promise.resolve();
 let bleRxLineBuf = '';
 let pendingBleAiResolver = null;
 
+const IDB_NAME = 'walle_eva_universe_db';
+const IDB_STORE = 'state';
+
+function idbOpen() {
+  return new Promise((resolve) => {
+    if (!window.indexedDB) { resolve(null); return; }
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(IDB_STORE)) {
+        req.result.createObjectStore(IDB_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => resolve(null);
+  });
+}
+
+async function idbLoadState() {
+  try {
+    const db = await idbOpen();
+    if (!db) return null;
+    return await new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).get('main');
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch (e) { return null; }
+}
+
+async function idbSaveState(stateObj) {
+  try {
+    const db = await idbOpen();
+    if (!db) return false;
+    return await new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(stateObj, 'main');
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+    });
+  } catch (e) { return false; }
+}
+
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -257,10 +300,17 @@ function loadState() {
 }
 
 function saveState() {
+  idbSaveState(appState);
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
   } catch (e) {
-    showToast('DEPOLAMA SINIRI DOLDU!');
+    try {
+      const slim = {
+        ...appState,
+        pins: (appState.pins || []).map(p => ({ ...p, photos: [] }))
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
+    } catch (e2) {}
   }
   updateStorageMeter();
   syncCloudOptional();
@@ -781,7 +831,10 @@ function renderPinPillsAndDetail() {
     pin.photos.forEach((src, idx) => {
       const w = document.createElement('div');
       w.className = 'mem-photo-wrap';
-      w.innerHTML = `<img src="${src}" alt="${pin.city} ${idx + 1}">`;
+      const im = document.createElement('img');
+      im.src = src;
+      im.alt = `${pin.city} ${idx + 1}`;
+      w.appendChild(im);
       w.onclick = () => openPhotoLightbox(src, `${pin.city} // ${pin.date}`);
       pGrid.appendChild(w);
     });
@@ -794,6 +847,23 @@ function selectPin(id) {
   renderPinPillsAndDetail();
 }
 
+function renderPendingPhotoThumbs() {
+  const prev = document.getElementById('pinPhotoPreview');
+  const box = document.getElementById('pinPhotoThumbs');
+  if (prev) prev.textContent = `${pendingPhotos.length} FOTOGRAF HAZIR`;
+  if (!box) return;
+  box.innerHTML = '';
+  pendingPhotos.forEach((src, idx) => {
+    const w = document.createElement('div');
+    w.className = 'mem-photo-wrap';
+    const im = document.createElement('img');
+    im.src = src;
+    im.alt = `Secilen ${idx + 1}`;
+    w.appendChild(im);
+    box.appendChild(w);
+  });
+}
+
 function openAddPinModal(lat = 39.92, lng = 32.85, cityPre = '', countryPre = '') {
   pendingPhotos = [];
   document.getElementById('pinLatInput').value = Number(lat).toFixed(4);
@@ -802,7 +872,7 @@ function openAddPinModal(lat = 39.92, lng = 32.85, cityPre = '', countryPre = ''
   document.getElementById('pinCountryInput').value = countryPre;
   document.getElementById('pinDateInput').value = '';
   document.getElementById('pinNoteInput').value = '';
-  document.getElementById('pinPhotoPreview').textContent = '0 FOTOGRAF SECILDI';
+  renderPendingPhotoThumbs();
   document.getElementById('addPinModal').classList.add('open');
 }
 
@@ -830,12 +900,18 @@ function closeModal(id) {
 
 function compressImageFile(file) {
   return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const img = new Image();
-      img.onload = () => {
-        const maxDim = 760;
-        let w = img.width, h = img.height;
+    let done = false;
+    const finish = (val) => { if (!done) { done = true; resolve(val); } };
+    const timer = setTimeout(() => finish(null), 8000);
+
+    const objUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      clearTimeout(timer);
+      try {
+        const maxDim = 640;
+        let w = img.naturalWidth || img.width || 640;
+        let h = img.naturalHeight || img.height || 640;
         if (w > maxDim || h > maxDim) {
           if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
           else       { w = Math.round(w * maxDim / h); h = maxDim; }
@@ -843,34 +919,70 @@ function compressImageFile(file) {
         const cv = document.createElement('canvas');
         cv.width = w; cv.height = h;
         cv.getContext('2d').drawImage(img, 0, 0, w, h);
-        resolve(cv.toDataURL('image/jpeg', 0.78));
-      };
-      img.src = ev.target.result;
+        URL.revokeObjectURL(objUrl);
+        finish(cv.toDataURL('image/jpeg', 0.74));
+      } catch (e) {
+        URL.revokeObjectURL(objUrl);
+        finish(null);
+      }
     };
-    reader.readAsDataURL(file);
+    img.onerror = () => {
+      clearTimeout(timer);
+      URL.revokeObjectURL(objUrl);
+      // Tarayici onizleyemese de ufak JPG/PNG ise ham DataURL dene
+      if (file.size <= 1500000 && /^image\/(jpeg|jpg|png|webp|gif)/i.test(file.type || '')) {
+        const rd = new FileReader();
+        rd.onload = () => finish(rd.result || null);
+        rd.onerror = () => finish(null);
+        rd.readAsDataURL(file);
+      } else {
+        finish(null);
+      }
+    };
+    img.src = objUrl;
   });
 }
 
 async function handlePhotoUpload(files, addToCurrentPin = false) {
-  const arr = Array.from(files);
+  const arr = Array.from(files || []);
   if (!arr.length) return;
+  showToast(`FOTOGRAFLAR HAZIRLANIYOR (${arr.length})...`);
   const compressed = [];
-  for (const f of arr) compressed.push(await compressImageFile(f));
+  let failed = 0;
+  for (const f of arr) {
+    const res = await compressImageFile(f);
+    if (res) compressed.push(res);
+    else failed++;
+  }
+
+  if (!compressed.length) {
+    showToast('FOTOGRAF ACILAMADI (JPG veya PNG secmeyi deneyin)');
+    return;
+  }
 
   if (addToCurrentPin) {
-    const pin = appState.pins.find(p => p.id === appState.selectedPinId);
+    let pin = appState.pins.find(p => p.id === appState.selectedPinId);
+    if (!pin && appState.pins.length > 0) {
+      pin = appState.pins[0];
+      appState.selectedPinId = pin.id;
+    }
     if (!pin) {
-      showToast('ONCE HARITADAN BIR SEHIR EKLEYIN');
+      // Haritada henuz sehir yoksa secilen fotolarla yeni sehir modalini ac
+      openAddPinModal();
+      pendingPhotos = [...compressed];
+      renderPendingPhotoThumbs();
+      showToast('SEHIR ADINI YAZIP "HARITAYA KAYDET" BUTONUNA BAS');
       return;
     }
     pin.photos = [...(pin.photos || []), ...compressed];
     saveState();
     renderMapMarkers();
     renderPinPillsAndDetail();
-    showToast(`${compressed.length} FOTOGRAF ANIYA EKLENDI`);
+    showToast(failed ? `${compressed.length} FOTOGRAF EKLENDI (${failed} DESTEKLENMEDI)` : `${compressed.length} FOTOGRAF ANIYA EKLENDI`);
   } else {
     pendingPhotos = [...pendingPhotos, ...compressed];
-    document.getElementById('pinPhotoPreview').textContent = `${pendingPhotos.length} FOTOGRAF HAZIR`;
+    renderPendingPhotoThumbs();
+    showToast(failed ? `${compressed.length} HAZIR (${failed} ATLANDI)` : `${pendingPhotos.length} FOTOGRAF HAZIR`);
   }
 }
 
@@ -1617,4 +1729,19 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   setRobotLinkStatus(false, '', navigator.bluetooth ? 'mixed' : 'nobt');
   syncRobotStatus(false);
+
+  // IndexedDB'deki buyuk/tam fotograf arsivini yukle ve ekrani tazele
+  idbLoadState().then((idbData) => {
+    if (!idbData || !Array.isArray(idbData.pins)) return;
+    const idbPhotos = idbData.pins.reduce((n, p) => n + ((p.photos && p.photos.length) || 0), 0);
+    const lsPhotos = (appState.pins || []).reduce((n, p) => n + ((p.photos && p.photos.length) || 0), 0);
+    if (idbPhotos > lsPhotos || idbData.pins.length > (appState.pins || []).length) {
+      appState = { ...structuredClone(DEFAULT_DATA), ...idbData };
+      renderMapMarkers();
+      renderPinPillsAndDetail();
+      renderNotes();
+      renderVoices();
+      updateStorageMeter();
+    }
+  });
 });
