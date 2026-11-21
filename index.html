@@ -9,7 +9,7 @@
   <title>WALL-E &amp; EVA // Anı Haritası ve Kumanda</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&family=Press+Start+2P&family=Silkscreen:wght@400;700&family=VT323&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -37,12 +37,12 @@
         <button type="button" class="acc-btn walle selected" id="pickWalleBtn" onclick="selectLoginAccount('walle')">
           <span class="px-ico lg" data-ico="walle"></span>
           <span>1. WALL-E</span>
-          <span style="font-family:'Pixelify Sans';font-size:12px;color:var(--walle-gold);">[BARAN]</span>
+          <span style="font-family:'Press Start 2P',monospace;font-size:8px;color:var(--walle-gold);">[BARAN]</span>
         </button>
         <button type="button" class="acc-btn eva" id="pickEvaBtn" onclick="selectLoginAccount('eva')">
           <span class="px-ico lg" data-ico="eva"></span>
           <span>2. EVA</span>
-          <span style="font-family:'Pixelify Sans';font-size:12px;color:var(--eva-pink);">[SUDE]</span>
+          <span style="font-family:'Press Start 2P',monospace;font-size:8px;color:var(--eva-pink);">[SUDE]</span>
         </button>
       </div>
 
@@ -69,30 +69,12 @@
     <header class="px-panel hud-bar">
       <div class="hud-brand">
         <span class="px-ico lg" id="hudRoleIcon" data-ico="walle"></span>
-        <span class="px-ico lg" data-ico="heart"></span>
-        <div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <span class="bnl-chip" id="hudBadgeChip">WALL-E</span>
-            <span class="hud-title" id="hudHeroTitle">WALL-E &amp; EVA</span>
-          </div>
-          <div class="hud-sub" id="sinceLabel">OPERATOR: BARAN // BIRLIKTE: 0 GUN</div>
-        </div>
+        <span class="hud-title" id="hudHeroTitle">WALL-E // BARAN EVRENI</span>
       </div>
 
       <div class="hud-metrics">
-        <div class="lcd-mini" id="hudLcd">WALLE &amp; EVA | HAZIR</div>
-        <div class="stat-chip">
-          <span class="px-ico sm" data-ico="battery"></span>
-          <span id="hudBat">%78</span>
-        </div>
-        <div class="stat-chip" id="hudStorageChip" title="Depolama doluluk orani">
-          <span>DEP %0</span>
-        </div>
         <button class="px-btn sm" id="hudBleBtn" onclick="toggleRobotBle()" style="border-color:#38bdf8;color:#7dd3fc;">
           BT BAGLAN
-        </button>
-        <button class="px-btn eva sm" onclick="triggerEvaSurprise()">
-          <span class="px-ico sm" data-ico="heart"></span> EVA KALP
         </button>
         <button class="px-btn sm" onclick="toggleSceneOnly()" title="Arka plani temiz izle">
           <span class="px-ico sm" data-ico="eye"></span> SAHNE
@@ -103,35 +85,24 @@
       </div>
     </header>
 
-    <!-- EVA HESABI ICIN OZEL KARSILAMA BANDI -->
-    <div class="eva-inbox-banner role-only-eva" id="evaWelcomeBanner">
-      <b>HOSGELDIN SUDE [EVA PANELI]</b> — Baran'dan gelen son sesli surpriz ve notlar "NOTLAR" sekmesinde senin icin one alindi. Haritadan istedigin sehre tiklayip kendi anilarimizi da ekleyebilirsin.
-    </div>
-
-    <!-- WALL-E HESABI ICIN OZEL KARSILAMA BANDI -->
-    <div class="eva-inbox-banner role-only-walle" style="background:rgba(140,86,10,0.48);border-color:var(--border-gold);">
-      <b>HOSGELDIN BARAN [WALL-E PANELI]</b> — EVA'ya uzaktan mesaj yollayabilir, haritadan sehir arayip fotograf ekleyebilir ve robotu yonetebilirsin.
-    </div>
-
     <!-- ANA CALISMA ALANI -->
     <main class="workspace">
 
       <!-- 1. SEKME: DUNYA ANI HARITASI -->
       <section class="tab-view active" id="view-map">
         <div class="map-grid">
-          <!-- Sol: Renkli Yaklasabilen Dunya Haritasi + Sehir Arama -->
           <div class="px-panel">
             <div class="sec-hdr">
               <div class="sec-title">
                 <span class="px-ico" data-ico="map"></span>
                 <span>DUNYA ANI HARITASI</span>
               </div>
-              <span class="sec-badge" id="mapPickBanner">SEHRE TIKLA VEYA ARA</span>
+              <span class="sec-badge" id="mapPickBanner">SEHRE TIKLA</span>
             </div>
 
             <!-- Sehir Arama Cubugu -->
             <div class="search-bar-wrap">
-              <input type="text" class="px-in" id="citySearchInput" placeholder="Sehir ara (orn: Roma, Kadikoy, Paris, Tokyo)..." onkeydown="if(event.key==='Enter') searchCity()" />
+              <input type="text" class="px-in" id="citySearchInput" placeholder="Sehir ara (Roma, Kadikoy, Paris...)" onkeydown="if(event.key==='Enter') searchCity()" />
               <button class="px-btn gold sm" onclick="searchCity()">SEHIR ARA</button>
               <div class="search-results" id="citySearchResults"></div>
             </div>
@@ -154,37 +125,6 @@
 
             <div class="pin-list" id="pinPillList"></div>
           </div>
-
-          <!-- Sag: Secili Sehir / Ani Karti -->
-          <aside class="px-panel gold memory-card">
-            <div class="sec-hdr">
-              <div class="sec-title">
-                <span class="px-ico" data-ico="camera"></span>
-                <span>SECILI ANI KARTI</span>
-              </div>
-              <span class="sec-badge" id="memBadge">GIDILDI</span>
-            </div>
-
-            <div class="mem-meta">
-              <span id="memCountry">TURKIYE // 14.05.2025</span>
-            </div>
-            <div class="mem-city" id="memCity">ISTANBUL</div>
-            <div class="mem-note" id="memNote">Anilar yukleniyor...</div>
-
-            <div class="mem-photos" id="memPhotos"></div>
-
-            <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:4px;">
-              <label class="px-btn sm" style="cursor:pointer;">
-                <span class="px-ico sm" data-ico="camera"></span> FOTO EKLE
-                <input type="file" accept="image/*" multiple style="display:none;" onchange="handlePhotoUpload(this.files, true); this.value='';" />
-              </label>
-              <button class="px-btn sm" onclick="openEditNoteModal()">NOT DUZENLE</button>
-              <button class="px-btn green sm" onclick="sendCurrentPinToLcd()">
-                <span class="px-ico sm" data-ico="walle"></span> EKRANA YANSIT
-              </button>
-              <button class="px-btn danger sm" onclick="deleteSelectedPin()">SIL</button>
-            </div>
-          </aside>
         </div>
       </section>
 
@@ -349,10 +289,10 @@
               <input type="text" class="px-in" id="remoteAiInput" value="EVA icin guzel bir cumle soyle" />
               <button class="px-btn green sm" onclick="sendRemoteAi()">SOR</button>
             </div>
-            <div style="margin-top:8px;padding:8px;border:2px solid var(--eva-cyan);background:rgba(3,12,28,0.78);font-family:'VT323',monospace;font-size:20px;color:var(--eva-cyan);min-height:52px;" id="remoteAiOut">
+            <div style="margin-top:8px;padding:8px;border:2px solid var(--eva-cyan);background:rgba(3,12,28,0.78);font-family:'Press Start 2P',monospace;font-size:9px;line-height:1.65;color:var(--eva-cyan);min-height:52px;" id="remoteAiOut">
               &gt; SISTEM HAZIR.
             </div>
-            <div class="lcd-box-big" style="font-size:21px;margin-top:8px;">
+            <div class="lcd-box-big" style="margin-top:8px;">
               <div class="lcd-line" id="bigLcd1">   WALLE &amp; EVA  </div>
               <div class="lcd-line" id="bigLcd2">  SISTEM AKTIF  </div>
             </div>
@@ -496,46 +436,85 @@
         </div>
       </div>
 
-      <label class="px-lbl">ANI NOTU / HIKAYE</label>
-      <textarea class="px-in" id="pinNoteInput" placeholder="Burada neler yaptik?"></textarea>
+      <label class="px-lbl" id="addPinThoughtLabel">YOLCULUK DUSUNCEN</label>
+      <textarea class="px-in" id="pinNoteInput" placeholder="Bu sehir hakkindaki dusuncelerin..."></textarea>
 
       <label class="px-btn sm" style="margin-top:8px;cursor:pointer;">
-        <span class="px-ico sm" data-ico="camera"></span> FOTOGRAF SEC
-        <input type="file" accept="image/*" multiple style="display:none;" onchange="handlePhotoUpload(this.files, false); this.value='';" />
+        <span class="px-ico sm" data-ico="camera"></span> FOTOGRAF / VIDEO SEC
+        <input type="file" accept="image/*,video/*" multiple style="display:none;" onchange="handlePhotoUpload(this.files, false); this.value='';" />
       </label>
-      <div id="pinPhotoPreview" style="font-size:12px;color:var(--eva-cyan);margin-top:4px;">0 FOTOGRAF SECILDI</div>
+      <div id="pinPhotoPreview" style="font-size:9px;color:var(--eva-cyan);margin-top:6px;">0 MEDYA SECILDI</div>
       <div class="mem-photos" id="pinPhotoThumbs" style="margin-top:6px;max-height:170px;overflow-y:auto;"></div>
 
       <button class="px-btn green" style="width:100%;margin-top:12px;" onclick="saveNewPin()">HARITAYA KAYDET</button>
     </div>
   </div>
 
-  <!-- MODAL: SECILI SEHRE HIZLI NOT DUZENLEME -->
-  <div class="px-modal" id="editNoteModal">
-    <div class="px-panel strong px-modal-card">
+  <!-- MODAL: SEHIR ANI KARTI (TARIH, FOTO, VIDEO & MAVI/PEMBE DUSUNCELER) -->
+  <div class="px-modal" id="memoryCardModal" onclick="closeModal('memoryCardModal')">
+    <div class="px-panel gold strong px-modal-card wide memory-card" onclick="event.stopPropagation()">
       <div class="sec-hdr">
-        <span class="sec-title">ANI NOTU VE FOTOGRAF</span>
-        <button class="px-btn danger sm" onclick="closeModal('editNoteModal')">X</button>
+        <div class="sec-title">
+          <span class="px-ico" data-ico="camera"></span>
+          <span id="memCity">SEHIR ANISI</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span class="sec-badge" id="memBadge">GIDILDI</span>
+          <button class="px-btn danger sm" onclick="closeModal('memoryCardModal')">X</button>
+        </div>
       </div>
-      <textarea class="px-in" id="editPinNoteArea"></textarea>
-      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
-        <label class="px-btn sm" style="flex:1;cursor:pointer;text-align:center;">
-          <span class="px-ico sm" data-ico="camera"></span> FOTO EKLE
-          <input type="file" accept="image/*" multiple style="display:none;" onchange="handlePhotoUpload(this.files, true); this.value='';" />
+
+      <div class="mem-meta">
+        <span>TARIH &amp; KONUM: </span><span id="memCountry">TURKIYE // TARIH</span>
+      </div>
+
+      <label class="px-lbl" style="margin-top:2px;">FOTOGRAFLAR &amp; VIDEOLAR</label>
+      <div class="mem-photos" id="memPhotos"></div>
+
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:2px;">
+        <label class="px-btn sm" style="cursor:pointer;">
+          <span class="px-ico sm" data-ico="camera"></span> + FOTO / VIDEO EKLE
+          <input type="file" accept="image/*,video/*" multiple style="display:none;" onchange="handlePhotoUpload(this.files, true); this.value='';" />
         </label>
-        <button class="px-btn green" style="flex:1;" onclick="saveEditedPinNote()">NOTU KAYDET</button>
+        <button class="px-btn green sm" onclick="sendCurrentPinToLcd()">
+          <span class="px-ico sm" data-ico="walle"></span> EKRANA YANSIT
+        </button>
+        <button class="px-btn danger sm" onclick="deleteSelectedPin()">SIL</button>
+      </div>
+
+      <div class="thoughts-grid">
+        <div class="thought-box walle">
+          <div class="thought-hdr">
+            <span><span class="px-ico sm" data-ico="walle"></span> WALL-E'NIN YOLCULUK DUSUNCELERI</span>
+            <span class="thought-lock" id="walleThoughtLock">BARAN</span>
+          </div>
+          <textarea class="px-in" id="memWalleInput" placeholder="Baran'in yolculuk dusuncesi..."></textarea>
+          <div class="thought-readonly" id="memWalleRead" style="display:none;"></div>
+          <button class="px-btn sm" id="memWalleSaveBtn" onclick="saveJourneyThought('walle')">KAYDET</button>
+        </div>
+
+        <div class="thought-box eva">
+          <div class="thought-hdr">
+            <span><span class="px-ico sm" data-ico="eva"></span> EVA'NIN YOLCULUK DUSUNCELERI</span>
+            <span class="thought-lock" id="evaThoughtLock">SUDE</span>
+          </div>
+          <textarea class="px-in" id="memEvaInput" placeholder="Sude'nin yolculuk dusuncesi..."></textarea>
+          <div class="thought-readonly" id="memEvaRead" style="display:none;"></div>
+          <button class="px-btn eva sm" id="memEvaSaveBtn" onclick="saveJourneyThought('eva')">KAYDET</button>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- MODAL: BUYUK FOTOGRAF GORUNTULEYICI -->
+  <!-- MODAL: BUYUK MEDYA GORUNTULEYICI (FOTO & VIDEO) -->
   <div class="px-modal" id="photoModal" onclick="closeModal('photoModal')">
-    <div class="px-panel strong px-modal-card" onclick="event.stopPropagation()">
+    <div class="px-panel strong px-modal-card wide" onclick="event.stopPropagation()">
       <div class="sec-hdr">
-        <span class="sec-title" id="photoBoxCap">ANI FOTOGRAFI</span>
+        <span class="sec-title" id="photoBoxCap">ANI GORUNTUSU</span>
         <button class="px-btn danger sm" onclick="closeModal('photoModal')">X</button>
       </div>
-      <img id="photoBoxImg" src="" alt="Ani" style="width:100%;display:block;border:2px solid var(--border-gold);" />
+      <img id="photoBoxImg" src="" alt="Ani" style="width:100%;display:none;border:2px solid var(--border-gold);" />
+      <video id="photoBoxVideo" controls playsinline style="width:100%;max-height:70vh;display:none;border:2px solid var(--eva-cyan);background:#000;"></video>
     </div>
   </div>
 

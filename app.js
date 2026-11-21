@@ -228,6 +228,7 @@ let mapObj = null;
 let leafletMarkers = [];
 let tempSearchMarker = null;
 let pendingPhotos = [];
+let pendingVideos = [];
 let mediaRec = null;
 let recChunks = [];
 let isRecording = false;
@@ -307,7 +308,7 @@ function saveState() {
     try {
       const slim = {
         ...appState,
-        pins: (appState.pins || []).map(p => ({ ...p, photos: [] }))
+        pins: (appState.pins || []).map(p => ({ ...p, photos: [], videos: [] }))
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
     } catch (e2) {}
@@ -358,8 +359,12 @@ function applyAccountUI(role) {
   ico.dataset.ico = role;
   renderPixelIcons(ico.parentElement);
 
-  document.getElementById('hudBadgeChip').textContent = acc.badge;
-  document.getElementById('hudHeroTitle').textContent = role === 'eva' ? 'EVA // SUDE EVRENI' : 'WALL-E // BARAN EVRENI';
+  const chip = document.getElementById('hudBadgeChip');
+  if (chip) chip.textContent = acc.badge;
+  const hero = document.getElementById('hudHeroTitle');
+  if (hero) hero.textContent = role === 'eva' ? 'EVA // SUDE EVRENI' : 'WALL-E // BARAN EVRENI';
+  const pinLbl = document.getElementById('addPinThoughtLabel');
+  if (pinLbl) pinLbl.textContent = role === 'eva' ? "EVA'NIN YOLCULUK DUSUNCESI" : "WALL-E'NIN YOLCULUK DUSUNCESI";
   updateRelationshipTimer();
 
   // Hesaba gore Notlar sekmesini otomatik ayir
@@ -381,6 +386,7 @@ function applyAccountUI(role) {
     if (document.getElementById('view-settings').classList.contains('active')) switchTab('map');
   }
 
+  renderPinPillsAndDetail();
   if (mapObj) setTimeout(() => mapObj.invalidateSize(), 120);
   playRetroBeep(role === 'eva' ? 'eva' : 'startup');
 }
@@ -396,7 +402,10 @@ function logoutAccount() {
 // DEPOLAMA TAKIBI & sudesenturk6507@gmail.com UYARI SISTEMI
 // ============================================================================
 function getStorageUsage() {
-  const bytes = new Blob([JSON.stringify(appState)]).size;
+  const jsonBytes = new Blob([JSON.stringify(appState)]).size;
+  const videoBytes = (appState.pins || []).reduce((sum, p) =>
+    sum + ((p.videos || []).reduce((vs, v) => vs + (v.size || (v.blob && v.blob.size) || 0), 0)), 0);
+  const bytes = jsonBytes + videoBytes;
   const maxMb = Math.max(1, Number(appState.quotaMb) || 5);
   const maxBytes = maxMb * 1024 * 1024;
   const pct = Math.min(100, Math.round((bytes / maxBytes) * 100));
@@ -406,8 +415,10 @@ function getStorageUsage() {
 function updateStorageMeter() {
   const st = getStorageUsage();
   const label = st.maxMb <= 5 ? `${st.kb} KB / ${st.maxMb} MB (%${st.pct})` : `${st.mb} MB / ${st.maxMb} MB (%${st.pct})`;
-  document.getElementById('storageStats').textContent = label;
-  document.getElementById('hudStorageChip').textContent = `DEP %${st.pct}`;
+  const statsEl = document.getElementById('storageStats');
+  if (statsEl) statsEl.textContent = label;
+  const hudChip = document.getElementById('hudStorageChip');
+  if (hudChip) hudChip.textContent = `DEP %${st.pct}`;
 
   const bar = document.getElementById('storageBar');
   if (bar) {
@@ -537,12 +548,14 @@ function playSynthFallback(kind) {
 // UST HUD & SAYAC & LCD SENKRONU
 // ============================================================================
 function updateRelationshipTimer() {
+  const el = document.getElementById('sinceLabel');
+  if (!el) return;
   const start = new Date((appState.sinceDate || '2025-05-14') + 'T00:00:00');
   const diffMs = Math.max(0, Date.now() - start.getTime());
   const days = Math.floor(diffMs / 86400000);
   const hours = Math.floor((diffMs % 86400000) / 3600000);
   const op = activeRole ? ACCOUNTS[activeRole].operator : 'WALL-E & EVA';
-  document.getElementById('sinceLabel').textContent = `${op} // BIRLIKTE: ${days} GUN ${hours} SAAT`;
+  el.textContent = `${op} // BIRLIKTE: ${days} GUN ${hours} SAAT`;
 }
 
 function updateHudLcd(l1, l2) {
@@ -550,7 +563,8 @@ function updateHudLcd(l1, l2) {
   const b = (l2 || '').toUpperCase().slice(0, 16).padEnd(16, ' ');
   appState.robotState.lcd1 = a;
   appState.robotState.lcd2 = b;
-  document.getElementById('hudLcd').textContent = `${a.trim()} | ${b.trim()}`;
+  const hl = document.getElementById('hudLcd');
+  if (hl) hl.textContent = `${a.trim()} | ${b.trim()}`;
   const r1 = document.getElementById('bigLcd1');
   const r2 = document.getElementById('bigLcd2');
   if (r1 && r2) { r1.textContent = a; r2.textContent = b; }
@@ -558,7 +572,8 @@ function updateHudLcd(l1, l2) {
 
 function renderMeters() {
   const pct = appState.robotState.batPct || 78;
-  document.getElementById('hudBat').textContent = `%${pct}`;
+  const hb = document.getElementById('hudBat');
+  if (hb) hb.textContent = `%${pct}`;
   const solarBox = document.getElementById('remoteSolarMeter');
   if (solarBox) {
     solarBox.innerHTML = '';
@@ -601,19 +616,18 @@ function createPixelMarkerIcon(type) {
 
 function buildPinPopupHtml(pin) {
   const pCount = (pin.photos && pin.photos.length) ? pin.photos.length : 0;
+  const vCount = (pin.videos && pin.videos.length) ? pin.videos.length : 0;
   return `
-    <div style="min-width:190px;font-family:'Pixelify Sans',monospace;">
-      <div style="color:#f6bf42;font-weight:700;font-size:14px;">${escapeHtml(pin.city)} (${escapeHtml(pin.country)})</div>
-      <div style="color:#67d4ff;font-size:11px;margin:2px 0 6px;">${escapeHtml(pin.date)} // ${pCount} FOTOGRAF</div>
-      <div style="font-size:12px;line-height:1.4;margin-bottom:8px;">${escapeHtml(pin.note)}</div>
-      <button class="px-btn gold sm" style="width:100%;" onclick="focusPinAndUpload('${pin.id}')">FOTOGRAF / NOT EKLE</button>
+    <div style="min-width:190px;font-family:'Press Start 2P',monospace;">
+      <div style="color:#f6bf42;font-size:10px;line-height:1.5;">${escapeHtml(pin.city)} (${escapeHtml(pin.country)})</div>
+      <div style="color:#67d4ff;font-size:8px;line-height:1.6;margin:4px 0 8px;">${escapeHtml(pin.date)} // ${pCount} FOTO, ${vCount} VIDEO</div>
+      <button class="px-btn gold sm" style="width:100%;" onclick="focusPinAndUpload('${pin.id}')">ANI KARTINI AC</button>
     </div>
   `;
 }
 
 function focusPinAndUpload(id) {
-  selectPin(id);
-  openEditNoteModal();
+  openMemoryCard(id);
 }
 
 function initMap() {
@@ -676,10 +690,10 @@ function showTempCityPopup(lat, lng, cityName, countryName) {
   const safeCity = escapeHtml(cityName);
   const safeCountry = escapeHtml(countryName);
   tempSearchMarker.bindPopup(`
-    <div style="min-width:195px;font-family:'Pixelify Sans',monospace;">
-      <div style="color:#67d4ff;font-weight:700;font-size:14px;">${safeCity} (${safeCountry})</div>
-      <div style="font-size:12px;margin:4px 0 8px;">Bu sehirde henuz kayitli ani yok. Hemen ekleyebilirsiniz.</div>
-      <button class="px-btn green sm" style="width:100%;" onclick="openPrefilledPinModal(${lat}, ${lng}, '${encodeURIComponent(cityName)}', '${encodeURIComponent(countryName)}')">BURAYA FOTOGRAF &amp; NOT EKLE</button>
+    <div style="min-width:195px;font-family:'Press Start 2P',monospace;">
+      <div style="color:#67d4ff;font-size:10px;line-height:1.5;">${safeCity} (${safeCountry})</div>
+      <div style="font-size:8.5px;line-height:1.6;margin:6px 0 8px;">Bu sehirde henuz kayitli ani yok. Hemen ekleyebilirsiniz.</div>
+      <button class="px-btn green sm" style="width:100%;" onclick="openPrefilledPinModal(${lat}, ${lng}, '${encodeURIComponent(cityName)}', '${encodeURIComponent(countryName)}')">BURAYA ANI EKLE</button>
     </div>
   `).openPopup();
 }
@@ -787,19 +801,26 @@ function renderOfflinePixelMap(container) {
   });
 }
 
+function getVideoObjUrl(v) {
+  if (!v) return '';
+  if (v.blob instanceof Blob) {
+    if (!v._objUrl) v._objUrl = URL.createObjectURL(v.blob);
+    return v._objUrl;
+  }
+  return v.dataUrl || '';
+}
+
 function renderPinPillsAndDetail() {
   const pillBox = document.getElementById('pinPillList');
-  pillBox.innerHTML = '';
-  const pGrid = document.getElementById('memPhotos');
-  pGrid.innerHTML = '';
+  if (pillBox) pillBox.innerHTML = '';
 
   if (!appState.pins.length) {
     appState.selectedPinId = '';
-    pillBox.innerHTML = '<div style="font-size:12px;color:var(--text-dim);">HENUZ KAYITLI SEHIR YOK — YUKARIDAN SEHIR ARA VEYA HARITADA BIR YERE TIKLA.</div>';
-    document.getElementById('memCity').textContent = 'HENUZ ANI YOK';
-    document.getElementById('memCountry').textContent = 'DUNYA // BOS HARITA';
-    document.getElementById('memBadge').textContent = 'HAZIR';
-    document.getElementById('memNote').textContent = 'Yukaridaki arama cubugundan bir sehir arayabilir veya haritadan istedigin yere tiklayip ilk fotografini ekleyebilirsin.';
+    if (pillBox) {
+      pillBox.innerHTML = '<div style="font-size:9px;line-height:1.6;color:var(--text-dim);">HENUZ KAYITLI SEHIR YOK — SEHIR ARA VEYA HARITAYA TIKLAYIP ILK ANINI EKLE.</div>';
+    }
+    const pGrid = document.getElementById('memPhotos');
+    if (pGrid) pGrid.innerHTML = '';
     return;
   }
 
@@ -808,36 +829,122 @@ function renderPinPillsAndDetail() {
     b.className = `pin-pill ${pin.type === 'visited' ? 'walle' : 'eva'} ${pin.id === appState.selectedPinId ? 'active' : ''}`;
     b.textContent = pin.city;
     b.onclick = () => {
-      selectPin(pin.id);
       if (mapObj) mapObj.flyTo([pin.lat, pin.lng], 10, { duration: 0.7 });
+      openMemoryCard(pin.id);
     };
-    pillBox.appendChild(b);
+    if (pillBox) pillBox.appendChild(b);
   });
 
   const pin = appState.pins.find(p => p.id === appState.selectedPinId) || appState.pins[0];
   appState.selectedPinId = pin.id;
+  renderMemoryModalContent(pin);
+}
 
-  document.getElementById('memCity').textContent = pin.city;
-  document.getElementById('memCountry').textContent = `${pin.country} // ${pin.date}`;
-  document.getElementById('memBadge').textContent = pin.type === 'visited' ? 'GIDILDI [WALL-E]' : 'HEDEF [EVA]';
-  document.getElementById('memNote').textContent = pin.note;
+function renderMemoryModalContent(pin) {
+  if (!pin) return;
+  const pGrid = document.getElementById('memPhotos');
+  if (pGrid) pGrid.innerHTML = '';
 
-  if (!pin.photos || pin.photos.length === 0) {
-    const empty = document.createElement('div');
-    empty.style.cssText = 'grid-column:1/-1;font-size:12px;color:var(--text-dim);padding:7px;border:1px dashed rgba(103,212,255,0.45);';
-    empty.textContent = 'HENUZ FOTOGRAF YOK - ASAGIDAKI FOTO EKLE BUTONUNDAN EKLEYEBILIRSIN.';
-    pGrid.appendChild(empty);
-  } else {
-    pin.photos.forEach((src, idx) => {
-      const w = document.createElement('div');
-      w.className = 'mem-photo-wrap';
-      const im = document.createElement('img');
-      im.src = src;
-      im.alt = `${pin.city} ${idx + 1}`;
-      w.appendChild(im);
-      w.onclick = () => openPhotoLightbox(src, `${pin.city} // ${pin.date}`);
-      pGrid.appendChild(w);
-    });
+  const cityEl = document.getElementById('memCity');
+  const countryEl = document.getElementById('memCountry');
+  const badgeEl = document.getElementById('memBadge');
+  if (cityEl) cityEl.textContent = pin.city;
+  if (countryEl) countryEl.textContent = `${pin.country} // ${pin.date}`;
+  if (badgeEl) badgeEl.textContent = pin.type === 'visited' ? 'GIDILDI [WALL-E]' : 'HAYAL [EVA]';
+
+  const photos = pin.photos || [];
+  const videos = pin.videos || [];
+  if (pGrid) {
+    if (!photos.length && !videos.length) {
+      const empty = document.createElement('div');
+      empty.style.cssText = 'grid-column:1/-1;font-size:9px;line-height:1.6;color:var(--text-dim);padding:8px;border:1px dashed rgba(103,212,255,0.45);';
+      empty.textContent = 'HENUZ FOTOGRAF VEYA VIDEO YOK — ASAGIDAN EKLEYEBILIRSIN.';
+      pGrid.appendChild(empty);
+    } else {
+      photos.forEach((src, idx) => {
+        const w = document.createElement('div');
+        w.className = 'mem-photo-wrap';
+        const im = document.createElement('img');
+        im.src = src;
+        im.alt = `${pin.city} ${idx + 1}`;
+        w.appendChild(im);
+        w.onclick = () => openMediaLightbox('image', src, `${pin.city} // ${pin.date}`);
+        pGrid.appendChild(w);
+      });
+      videos.forEach((v, idx) => {
+        const url = getVideoObjUrl(v);
+        if (!url) return;
+        const w = document.createElement('div');
+        w.className = 'mem-photo-wrap';
+        const vid = document.createElement('video');
+        vid.src = url;
+        vid.muted = true;
+        vid.playsInline = true;
+        vid.preload = 'metadata';
+        const badge = document.createElement('span');
+        badge.className = 'mem-video-badge';
+        badge.textContent = 'VIDEO';
+        w.appendChild(vid);
+        w.appendChild(badge);
+        w.onclick = () => openMediaLightbox('video', url, `${pin.city} // ${v.name || ('VIDEO ' + (idx + 1))}`);
+        pGrid.appendChild(w);
+      });
+    }
+  }
+
+  // Mavi (WALL-E) ve Pembe (EVA) yolculuk dusunceleri — rol kilidi
+  const walleText = (pin.walleNote !== undefined) ? pin.walleNote : (pin.note || '');
+  const evaText   = (pin.evaNote !== undefined)   ? pin.evaNote   : '';
+
+  const wIn   = document.getElementById('memWalleInput');
+  const wRead = document.getElementById('memWalleRead');
+  const wBtn  = document.getElementById('memWalleSaveBtn');
+  const wLock = document.getElementById('walleThoughtLock');
+
+  const eIn   = document.getElementById('memEvaInput');
+  const eRead = document.getElementById('memEvaRead');
+  const eBtn  = document.getElementById('memEvaSaveBtn');
+  const eLock = document.getElementById('evaThoughtLock');
+
+  if (wIn && wRead && wBtn) {
+    if (activeRole === 'walle') {
+      wIn.style.display = 'block'; wIn.value = walleText;
+      wBtn.style.display = 'inline-flex';
+      wRead.style.display = 'none';
+      if (wLock) wLock.textContent = 'YAZABILIRSIN';
+    } else {
+      wIn.style.display = 'none';
+      wBtn.style.display = 'none';
+      wRead.style.display = 'block';
+      wRead.textContent = walleText || 'WALL-E henuz bu yolculuk icin dusunce yazmadi.';
+      if (wLock) wLock.textContent = 'SADECE WALL-E';
+    }
+  }
+
+  if (eIn && eRead && eBtn) {
+    if (activeRole === 'eva') {
+      eIn.style.display = 'block'; eIn.value = evaText;
+      eBtn.style.display = 'inline-flex';
+      eRead.style.display = 'none';
+      if (eLock) eLock.textContent = 'YAZABILIRSIN';
+    } else {
+      eIn.style.display = 'none';
+      eBtn.style.display = 'none';
+      eRead.style.display = 'block';
+      eRead.textContent = evaText || 'EVA henuz bu yolculuk icin dusunce yazmadi.';
+      if (eLock) eLock.textContent = 'SADECE EVA';
+    }
+  }
+}
+
+function openMemoryCard(id) {
+  appState.selectedPinId = id;
+  saveState();
+  renderPinPillsAndDetail();
+  const pin = appState.pins.find(p => p.id === id);
+  if (pin) {
+    renderMemoryModalContent(pin);
+    document.getElementById('memoryCardModal').classList.add('open');
   }
 }
 
@@ -847,10 +954,28 @@ function selectPin(id) {
   renderPinPillsAndDetail();
 }
 
+function saveJourneyThought(role) {
+  if (activeRole !== role) {
+    showToast('SADECE KENDI ALANINA YAZABILIRSIN');
+    return;
+  }
+  const pin = appState.pins.find(p => p.id === appState.selectedPinId);
+  if (!pin) return;
+  if (role === 'walle') {
+    pin.walleNote = document.getElementById('memWalleInput').value.trim();
+  } else {
+    pin.evaNote = document.getElementById('memEvaInput').value.trim();
+  }
+  saveState();
+  renderMapMarkers();
+  renderMemoryModalContent(pin);
+  showToast(role === 'walle' ? "WALL-E'NIN DUSUNCESI KAYDEDILDI" : "EVA'NIN DUSUNCESI KAYDEDILDI");
+}
+
 function renderPendingPhotoThumbs() {
   const prev = document.getElementById('pinPhotoPreview');
   const box = document.getElementById('pinPhotoThumbs');
-  if (prev) prev.textContent = `${pendingPhotos.length} FOTOGRAF HAZIR`;
+  if (prev) prev.textContent = `${pendingPhotos.length} FOTO, ${pendingVideos.length} VIDEO HAZIR`;
   if (!box) return;
   box.innerHTML = '';
   pendingPhotos.forEach((src, idx) => {
@@ -862,10 +987,28 @@ function renderPendingPhotoThumbs() {
     w.appendChild(im);
     box.appendChild(w);
   });
+  pendingVideos.forEach((v) => {
+    const url = getVideoObjUrl(v);
+    if (!url) return;
+    const w = document.createElement('div');
+    w.className = 'mem-photo-wrap';
+    const vid = document.createElement('video');
+    vid.src = url;
+    vid.muted = true;
+    vid.playsInline = true;
+    vid.preload = 'metadata';
+    const badge = document.createElement('span');
+    badge.className = 'mem-video-badge';
+    badge.textContent = 'VIDEO';
+    w.appendChild(vid);
+    w.appendChild(badge);
+    box.appendChild(w);
+  });
 }
 
 function openAddPinModal(lat = 39.92, lng = 32.85, cityPre = '', countryPre = '') {
   pendingPhotos = [];
+  pendingVideos = [];
   document.getElementById('pinLatInput').value = Number(lat).toFixed(4);
   document.getElementById('pinLngInput').value = Number(lng).toFixed(4);
   document.getElementById('pinCityInput').value = cityPre;
@@ -876,26 +1019,13 @@ function openAddPinModal(lat = 39.92, lng = 32.85, cityPre = '', countryPre = ''
   document.getElementById('addPinModal').classList.add('open');
 }
 
-function openEditNoteModal() {
-  const pin = appState.pins.find(p => p.id === appState.selectedPinId);
-  if (!pin) { showToast('ONCE HARITADAN BIR SEHIR EKLEYIN'); return; }
-  document.getElementById('editPinNoteArea').value = pin.note;
-  document.getElementById('editNoteModal').classList.add('open');
-}
-
-function saveEditedPinNote() {
-  const pin = appState.pins.find(p => p.id === appState.selectedPinId);
-  if (!pin) return;
-  pin.note = document.getElementById('editPinNoteArea').value.trim() || pin.note;
-  saveState();
-  renderMapMarkers();
-  renderPinPillsAndDetail();
-  closeModal('editNoteModal');
-  showToast('ANI NOTU GUNCELLENDI');
-}
-
 function closeModal(id) {
-  document.getElementById(id).classList.remove('open');
+  const el = document.getElementById(id);
+  if (el) el.classList.remove('open');
+  if (id === 'photoModal') {
+    const vid = document.getElementById('photoBoxVideo');
+    if (vid) { vid.pause(); vid.src = ''; }
+  }
 }
 
 function compressImageFile(file) {
@@ -946,17 +1076,29 @@ function compressImageFile(file) {
 async function handlePhotoUpload(files, addToCurrentPin = false) {
   const arr = Array.from(files || []);
   if (!arr.length) return;
-  showToast(`FOTOGRAFLAR HAZIRLANIYOR (${arr.length})...`);
-  const compressed = [];
+  showToast(`MEDYA HAZIRLANIYOR (${arr.length})...`);
+  const newPhotos = [];
+  const newVideos = [];
   let failed = 0;
-  for (const f of arr) {
-    const res = await compressImageFile(f);
-    if (res) compressed.push(res);
-    else failed++;
+
+  for (let i = 0; i < arr.length; i++) {
+    const f = arr[i];
+    const isVid = (f.type && f.type.startsWith('video/')) || /\.(mp4|mov|webm|m4v|3gp)$/i.test(f.name || '');
+    if (isVid) {
+      if (f.size > 120 * 1024 * 1024) {
+        failed++;
+      } else {
+        newVideos.push({ id: 'vid_' + Date.now() + '_' + i, name: f.name || 'video.mp4', mime: f.type || 'video/mp4', size: f.size, blob: f });
+      }
+    } else {
+      const res = await compressImageFile(f);
+      if (res) newPhotos.push(res);
+      else failed++;
+    }
   }
 
-  if (!compressed.length) {
-    showToast('FOTOGRAF ACILAMADI (JPG veya PNG secmeyi deneyin)');
+  if (!newPhotos.length && !newVideos.length) {
+    showToast('MEDYA ACILAMADI (JPG, PNG veya MP4 deneyin)');
     return;
   }
 
@@ -967,28 +1109,32 @@ async function handlePhotoUpload(files, addToCurrentPin = false) {
       appState.selectedPinId = pin.id;
     }
     if (!pin) {
-      // Haritada henuz sehir yoksa secilen fotolarla yeni sehir modalini ac
       openAddPinModal();
-      pendingPhotos = [...compressed];
+      pendingPhotos = [...newPhotos];
+      pendingVideos = [...newVideos];
       renderPendingPhotoThumbs();
       showToast('SEHIR ADINI YAZIP "HARITAYA KAYDET" BUTONUNA BAS');
       return;
     }
-    pin.photos = [...(pin.photos || []), ...compressed];
+    pin.photos = [...(pin.photos || []), ...newPhotos];
+    pin.videos = [...(pin.videos || []), ...newVideos];
     saveState();
     renderMapMarkers();
     renderPinPillsAndDetail();
-    showToast(failed ? `${compressed.length} FOTOGRAF EKLENDI (${failed} DESTEKLENMEDI)` : `${compressed.length} FOTOGRAF ANIYA EKLENDI`);
+    const total = newPhotos.length + newVideos.length;
+    showToast(failed ? `${total} MEDYA EKLENDI (${failed} DESTEKLENMEDI)` : `${total} MEDYA ANIYA EKLENDI`);
   } else {
-    pendingPhotos = [...pendingPhotos, ...compressed];
+    pendingPhotos = [...pendingPhotos, ...newPhotos];
+    pendingVideos = [...pendingVideos, ...newVideos];
     renderPendingPhotoThumbs();
-    showToast(failed ? `${compressed.length} HAZIR (${failed} ATLANDI)` : `${pendingPhotos.length} FOTOGRAF HAZIR`);
+    showToast(`${pendingPhotos.length} FOTO, ${pendingVideos.length} VIDEO HAZIR`);
   }
 }
 
 function saveNewPin() {
   const city = document.getElementById('pinCityInput').value.trim().toUpperCase();
   if (!city) { showToast('SEHIR ADI GIRIN'); return; }
+  const initialThought = document.getElementById('pinNoteInput').value.trim();
   const pin = {
     id: 'pin_' + Date.now(),
     city,
@@ -997,10 +1143,14 @@ function saveNewPin() {
     lng: parseFloat(document.getElementById('pinLngInput').value) || 29.0,
     type: document.getElementById('pinTypeInput').value,
     date: (document.getElementById('pinDateInput').value.trim() || 'YENI ANI').toUpperCase(),
-    note: document.getElementById('pinNoteInput').value.trim() || 'Birlikte guzel bir ani.',
-    photos: [...pendingPhotos]
+    note: initialThought || '',
+    walleNote: activeRole === 'walle' ? initialThought : '',
+    evaNote:   activeRole === 'eva'   ? initialThought : '',
+    photos: [...pendingPhotos],
+    videos: [...pendingVideos]
   };
   pendingPhotos = [];
+  pendingVideos = [];
   if (tempSearchMarker && mapObj) {
     mapObj.removeLayer(tempSearchMarker);
     tempSearchMarker = null;
@@ -1020,6 +1170,7 @@ function deleteSelectedPin() {
   appState.pins = appState.pins.filter(p => p.id !== appState.selectedPinId);
   appState.selectedPinId = appState.pins.length ? appState.pins[0].id : '';
   saveState();
+  closeModal('memoryCardModal');
   renderMapMarkers();
   renderPinPillsAndDetail();
   showToast('SECILI PIN SILINDI');
@@ -1028,15 +1179,25 @@ function deleteSelectedPin() {
 function sendCurrentPinToLcd() {
   const pin = appState.pins.find(p => p.id === appState.selectedPinId);
   if (!pin) { showToast('ONCE HARITADAN BIR SEHIR EKLEYIN'); return; }
-  updateHudLcd(pin.city, pin.note.slice(0, 16));
-  sendRobotAction('lcd', { l1: pin.city, l2: pin.note.slice(0, 16) });
+  const txt = (activeRole === 'eva' ? pin.evaNote : pin.walleNote) || pin.note || pin.date || 'ANI';
+  updateHudLcd(pin.city, txt.slice(0, 16));
+  sendRobotAction('lcd', { l1: pin.city, l2: txt.slice(0, 16) });
   playRetroBeep('happy');
   showToast(`GOGUS EKRANINA YANSITILDI: ${pin.city}`);
 }
 
-function openPhotoLightbox(src, title) {
-  document.getElementById('photoBoxImg').src = src;
-  document.getElementById('photoBoxCap').textContent = title;
+function openMediaLightbox(kind, src, title) {
+  const imgEl = document.getElementById('photoBoxImg');
+  const vidEl = document.getElementById('photoBoxVideo');
+  const capEl = document.getElementById('photoBoxCap');
+  if (capEl) capEl.textContent = title;
+  if (kind === 'video') {
+    if (imgEl) { imgEl.style.display = 'none'; imgEl.src = ''; }
+    if (vidEl) { vidEl.style.display = 'block'; vidEl.src = src; }
+  } else {
+    if (vidEl) { vidEl.pause(); vidEl.style.display = 'none'; vidEl.src = ''; }
+    if (imgEl) { imgEl.style.display = 'block'; imgEl.src = src; }
+  }
   document.getElementById('photoModal').classList.add('open');
 }
 
@@ -1730,12 +1891,12 @@ document.addEventListener('DOMContentLoaded', () => {
   setRobotLinkStatus(false, '', navigator.bluetooth ? 'mixed' : 'nobt');
   syncRobotStatus(false);
 
-  // IndexedDB'deki buyuk/tam fotograf arsivini yukle ve ekrani tazele
+  // IndexedDB'deki buyuk/tam fotograf ve video arsivini yukle ve ekrani tazele
   idbLoadState().then((idbData) => {
     if (!idbData || !Array.isArray(idbData.pins)) return;
-    const idbPhotos = idbData.pins.reduce((n, p) => n + ((p.photos && p.photos.length) || 0), 0);
-    const lsPhotos = (appState.pins || []).reduce((n, p) => n + ((p.photos && p.photos.length) || 0), 0);
-    if (idbPhotos > lsPhotos || idbData.pins.length > (appState.pins || []).length) {
+    const idbMedia = idbData.pins.reduce((n, p) => n + ((p.photos && p.photos.length) || 0) + ((p.videos && p.videos.length) || 0), 0);
+    const lsMedia = (appState.pins || []).reduce((n, p) => n + ((p.photos && p.photos.length) || 0) + ((p.videos && p.videos.length) || 0), 0);
+    if (idbMedia > lsMedia || idbData.pins.length >= (appState.pins || []).length) {
       appState = { ...structuredClone(DEFAULT_DATA), ...idbData };
       renderMapMarkers();
       renderPinPillsAndDetail();
