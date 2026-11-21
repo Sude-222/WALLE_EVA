@@ -182,65 +182,72 @@
         </div>
       </section>
 
-      <!-- 2. SEKME: ASK NOTLARI & EVA KAPSULU -->
+      <!-- 2. SEKME: NOTLAR & SESLI NOTLAR -->
       <section class="tab-view" id="view-notes">
         <div class="two-col">
-          <!-- Sol: EVA Gelince Oncelikli Ses & Notlar, WALL-E'de Fisilti & Gonderim -->
-          <div class="px-panel eva" id="notesVoicePanel">
+          <!-- Sol Panel: Partner Ekranina Not Gonder + Sesli Not Gonder + Daha Once Gonderilen Notlar -->
+          <div class="px-panel gold" id="notesSendPanel">
             <div class="sec-hdr">
               <div class="sec-title">
-                <span class="px-ico" data-ico="mic"></span>
-                <span id="voicePanelTitle">EVA SESLI KAPSUL</span>
+                <span class="px-ico" data-ico="note"></span>
+                <span id="sendPanelTitle">EVA'NIN EKRANINA NOT GONDER</span>
               </div>
-              <span class="sec-badge">AUDIO</span>
+              <span class="sec-badge" id="sendTargetBadge">WALL-E -&gt; EVA</span>
             </div>
 
-            <button class="px-btn eva" id="recVoiceBtn" style="width:100%;" onclick="toggleVoiceRecord()">
-              <span class="px-ico sm" data-ico="mic"></span> TARAYICIDAN SES KAYDET
+            <label class="px-lbl" id="sendNoteLbl" for="newNoteInput">EVA'NIN EKRANINA DUSECEK NOTUN</label>
+            <textarea class="px-in" id="newNoteInput" placeholder="Ekrana gonderilecek notunu yaz..."></textarea>
+            <button class="px-btn eva" id="sendNoteBtn" style="width:100%;margin-top:8px;" onclick="addLoveNote()">
+              <span class="px-ico sm" data-ico="heart"></span> EVA'NIN EKRANINA GONDER
             </button>
-            <div class="voice-list" id="voiceList"></div>
 
-            <div style="margin-top:16px;padding-top:10px;border-top:2px dashed rgba(255,122,184,0.4);">
+            <div class="notes-subsec">
               <div class="sec-title" style="margin-bottom:8px;">
-                <span class="px-ico sm" data-ico="heart"></span>
-                <span>ASK NOTLARI DUVARI</span>
+                <span class="px-ico sm" data-ico="mic"></span>
+                <span>SESLI NOT GONDER</span>
               </div>
-              <div class="notes-wall" id="notesWall"></div>
+              <div class="voice-rec-row">
+                <button class="px-btn cyan" id="recVoiceBtn" style="flex:1;" onclick="toggleVoiceRecord()">
+                  <span class="px-ico sm" data-ico="mic"></span> SESLI NOT KAYDET &amp; GONDER
+                </button>
+                <span class="voice-rec-timer" id="voiceRecTimer" style="display:none;">00:00</span>
+              </div>
+            </div>
+
+            <div class="notes-subsec">
+              <div class="sec-hdr" style="margin-bottom:6px;padding-bottom:6px;">
+                <div class="sec-title">
+                  <span class="px-ico sm" data-ico="walle"></span>
+                  <span>DAHA ONCE GONDERILEN NOTLAR</span>
+                </div>
+                <span class="sec-badge" id="sentNotesCount">0</span>
+              </div>
+              <div class="sent-notes-list" id="sentNotesList"></div>
             </div>
           </div>
 
-          <!-- Sag: Gogus Ekranina Fisilda + Yeni Not Birak -->
-          <div class="px-panel gold" id="notesComposePanel">
+          <!-- Sag Panel: Alinan & Alinmis Notlar + Cihazdan Oynatilabilir Sesli Notlar -->
+          <div class="px-panel eva" id="notesInboxPanel">
             <div class="sec-hdr">
               <div class="sec-title">
-                <span class="px-ico" data-ico="walle"></span>
-                <span id="composePanelTitle">GOGUS EKRANINA FISILDA</span>
+                <span class="px-ico" data-ico="mic"></span>
+                <span id="inboxPanelTitle">EKRAN NOTLARI &amp; SESLI KAPSUL</span>
               </div>
-              <span class="sec-badge">1602 LCD</span>
+              <span class="sec-badge">CANLI PANO</span>
             </div>
 
-            <label class="px-lbl">ROBOTUN GOGUS EKRANINA YAZILACAK MESAJ (MAX 32 KARAKTER)</label>
-            <input type="text" class="px-in" id="lcdWhisperInput" maxlength="32" value="SENI SEVIYORUM  KALP EVA" oninput="previewLcdMsg(this.value)" placeholder="Kisa mesaj yaz..." />
-
-            <div class="lcd-box-big">
-              <div class="lcd-line" id="whisperL1">SENI SEVIYORUM  </div>
-              <div class="lcd-line" id="whisperL2">KALP EVA        </div>
+            <div class="sec-title" style="margin-bottom:6px;">
+              <span class="px-ico sm" data-ico="music"></span>
+              <span>SESLI NOTLAR</span>
             </div>
+            <div class="voice-list" id="voiceList"></div>
 
-            <button class="px-btn gold" style="width:100%;" onclick="sendWhisperToWalle()">
-              <span class="px-ico sm" data-ico="heart"></span> EKRANA GONDER VE SES CAL
-            </button>
-
-            <div style="margin-top:16px;padding-top:10px;border-top:2px dashed rgba(246,191,66,0.4);">
-              <div class="sec-title" style="margin-bottom:8px;">
-                <span class="px-ico sm" data-ico="note"></span>
-                <span id="noteComposeHeading">ORTAK PANOYA ASK NOTU BIRAK</span>
+            <div class="notes-subsec">
+              <div class="sec-title" style="margin-bottom:6px;">
+                <span class="px-ico sm" data-ico="heart"></span>
+                <span>GELEN &amp; ALINAN NOTLAR</span>
               </div>
-              <label class="px-lbl">NOTUN (OTOMATIK HESABINLA IMZALANIR)</label>
-              <textarea class="px-in" id="newNoteInput" placeholder="Bugunku notunu yaz..."></textarea>
-              <button class="px-btn eva" style="width:100%;margin-top:8px;" onclick="addLoveNote()">
-                <span class="px-ico sm" data-ico="plus"></span> PANOYA EKLE
-              </button>
+              <div class="notes-wall" id="notesWall"></div>
             </div>
           </div>
         </div>

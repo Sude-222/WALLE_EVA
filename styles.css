@@ -328,6 +328,10 @@ body.locked .auth-overlay {
 .px-btn.eva { border-color: var(--border-pink); background: rgba(142, 30, 94, 0.82); color: #fff1f7; }
 .px-btn.eva:hover { background: rgba(172, 38, 114, 0.94); }
 .px-btn.green { border-color: var(--border-green); background: rgba(18, 98, 56, 0.84); color: #ecfdf5; }
+.px-btn.cyan  { border-color: var(--eva-cyan); background: rgba(14, 72, 118, 0.86); color: #e0f2fe; }
+.px-btn.cyan:hover { background: rgba(20, 96, 152, 0.94); }
+.px-btn.ghost { border-color: rgba(148, 163, 184, 0.45); background: rgba(10, 18, 38, 0.62); color: var(--text-dim); }
+.px-btn.ghost:hover { color: #f8fafc; border-color: #fda4af; }
 .px-btn.danger { border-color: #fda4af; background: rgba(168, 24, 44, 0.86); color: #fff1f2; }
 .px-btn.sm { padding: 7px 9px; font-size: 8px; }
 
@@ -609,11 +613,29 @@ body.locked .auth-overlay {
   line-height: 1.4;
 }
 
+.notes-subsec {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 2px dashed rgba(103, 212, 255, 0.35);
+}
+
+.sent-notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
 .notes-wall {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 10px;
-  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 .note-item {
   padding: 10px;
@@ -625,13 +647,31 @@ body.locked .auth-overlay {
 .note-item.from-sude  { border-color: var(--border-pink); background: rgba(34, 12, 38, 0.68); }
 .note-head {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  font-size: 8.5px;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 8px;
   line-height: 1.5;
   color: var(--eva-cyan);
   margin-bottom: 6px;
 }
-.note-body { font-size: 9.5px; line-height: 1.7; color: var(--text-main); }
+.note-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.note-del-btn {
+  border: 1px solid rgba(253, 164, 175, 0.55);
+  background: rgba(120, 20, 38, 0.48);
+  color: #fecdd3;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  padding: 2px 5px;
+  cursor: pointer;
+}
+.note-del-btn:hover { background: rgba(190, 24, 54, 0.85); color: #fff; }
+.note-body { font-size: 9px; line-height: 1.75; color: var(--text-main); word-break: break-word; }
 
 /* VFD 1602 LCD Buyuk Aynasi */
 .lcd-box-big {
@@ -809,16 +849,75 @@ input[type="range"].px-range { width: 100%; accent-color: var(--walle-gold); cur
 }
 .storage-alert-box.show { display: block; }
 
-.voice-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.voice-rec-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.voice-rec-timer {
+  padding: 8px 10px;
+  background: rgba(168, 24, 44, 0.85);
+  border: 2px solid #fda4af;
+  color: #fff1f2;
+  font-size: 9px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.voice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
 .voice-item {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px;
-  background: rgba(6, 16, 38, 0.7);
+  gap: 7px;
+  padding: 9px 10px;
+  background: rgba(6, 16, 38, 0.74);
   border: 2px solid var(--border-pink);
+  box-shadow: 3px 3px 0 #02050e;
 }
-.voice-item audio { width: 100%; height: 34px; }
+.voice-item.from-baran { border-color: var(--border-gold); background: rgba(30, 20, 10, 0.72); }
+.voice-item.from-sude  { border-color: var(--border-pink); background: rgba(34, 12, 38, 0.72); }
+
+.voice-player-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.voice-play-btn {
+  min-width: 96px;
+}
+.voice-play-btn.playing {
+  border-color: var(--border-green);
+  background: rgba(18, 98, 56, 0.9);
+  color: #ecfdf5;
+}
+.voice-track {
+  flex: 1;
+  min-width: 80px;
+  height: 12px;
+  background: rgba(2, 6, 18, 0.85);
+  border: 2px solid rgba(103, 212, 255, 0.45);
+  overflow: hidden;
+}
+.voice-track-fill {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--eva-cyan), var(--walle-gold));
+  transition: width 0.1s linear;
+}
+.voice-dur {
+  font-size: 8px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
 
 /* Sabit Alt Piksel Navigasyon Dock */
 .bottom-nav {

@@ -203,13 +203,19 @@ const DEFAULT_DATA = {
     {
       id: 'n1',
       author: 'BARAN',
+      target: 'EVA',
       date: '20.11.2026',
+      time: '21:15',
+      ts: 1795209300000,
       text: 'Bu kucuk robot masanda durdukca aklim hep sende olacak. Seni cok seviyorum EVA.'
     },
     {
       id: 'n2',
       author: 'SUDE',
+      target: 'WALL-E',
       date: '21.11.2026',
+      time: '14:40',
+      ts: 1795272000000,
       text: 'Birlikte gececegimiz yeni sehirleri haritaya tek tek isaretleyecegiz.'
     }
   ],
@@ -233,6 +239,10 @@ let activeMemoryOpen = false;
 let mediaRec = null;
 let recChunks = [];
 let isRecording = false;
+let voiceRecTimer = null;
+let voiceRecStartedAt = 0;
+let activeVoiceAudio = null;
+let activeVoiceId = '';
 let currentSongIdx = 0;
 let activeWavAudio = null;
 let robotLinkOk = false;
@@ -309,7 +319,8 @@ function saveState() {
     try {
       const slim = {
         ...appState,
-        pins: (appState.pins || []).map(p => ({ ...p, photos: [], videos: [] }))
+        pins: (appState.pins || []).map(p => ({ ...p, photos: [], videos: [] })),
+        voices: (appState.voices || []).map(v => ({ ...v, dataUrl: '' }))
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
     } catch (e2) {}
@@ -368,31 +379,49 @@ function applyAccountUI(role) {
   if (pinLbl) pinLbl.textContent = role === 'eva' ? "EVA'NIN YOLCULUK DUSUNCESI" : "WALL-E'NIN YOLCULUK DUSUNCESI";
   updateRelationshipTimer();
 
-  // Hesaba gore Notlar sekmesini otomatik ayir
-  const notesRow = document.querySelector('#view-notes .two-col');
-  const voicePanel = document.getElementById('notesVoicePanel');
-  const composePanel = document.getElementById('notesComposePanel');
+  // Hesaba gore Notlar sekmesi: Sol = Partner Ekranina Gonderim & Gecmis, Sag = Gelen & Alinan Notlar
+  const sendPanel = document.getElementById('notesSendPanel');
+  const inboxPanel = document.getElementById('notesInboxPanel');
+  const sendBtn = document.getElementById('sendNoteBtn');
   if (role === 'eva') {
-    notesRow.prepend(voicePanel);
-    document.getElementById('voicePanelTitle').textContent = 'BARAN -> EVA GELEN KUTUSU';
-    document.getElementById('composePanelTitle').textContent = "WALL-E'YE MESAJ GONDER";
-    document.getElementById('noteComposeHeading').textContent = 'EVA IMZALI ASK NOTU BIRAK';
+    if (sendPanel) { sendPanel.classList.remove('gold'); sendPanel.classList.add('eva'); }
+    if (inboxPanel) { inboxPanel.classList.remove('eva'); inboxPanel.classList.add('gold'); }
+    document.getElementById('sendPanelTitle').textContent = "WALL-E'NIN EKRANINA NOT GONDER";
+    document.getElementById('sendTargetBadge').textContent = 'EVA -> WALL-E';
+    document.getElementById('sendNoteLbl').textContent = "WALL-E'NIN EKRANINA DUSECEK NOTUN";
+    if (sendBtn) {
+      sendBtn.className = 'px-btn gold';
+      sendBtn.innerHTML = `<span class="px-ico sm" data-ico="heart"></span> WALL-E'NIN EKRANINA GONDER`;
+      renderPixelIcons(sendBtn);
+    }
+    document.getElementById('inboxPanelTitle').textContent = 'EVA EKRANI & SESLI KAPSUL';
     document.getElementById('pinTypeInput').value = 'dream';
   } else {
-    notesRow.prepend(composePanel);
-    document.getElementById('voicePanelTitle').textContent = 'EVA SESLI KAPSUL & DUVAR';
-    document.getElementById('composePanelTitle').textContent = "EVA'YA SURPRIZ & LCD FISILTI";
-    document.getElementById('noteComposeHeading').textContent = 'WALL-E IMZALI ASK NOTU BIRAK';
+    if (sendPanel) { sendPanel.classList.remove('eva'); sendPanel.classList.add('gold'); }
+    if (inboxPanel) { inboxPanel.classList.remove('gold'); inboxPanel.classList.add('eva'); }
+    document.getElementById('sendPanelTitle').textContent = "EVA'NIN EKRANINA NOT GONDER";
+    document.getElementById('sendTargetBadge').textContent = 'WALL-E -> EVA';
+    document.getElementById('sendNoteLbl').textContent = "EVA'NIN EKRANINA DUSECEK NOTUN";
+    if (sendBtn) {
+      sendBtn.className = 'px-btn eva';
+      sendBtn.innerHTML = `<span class="px-ico sm" data-ico="heart"></span> EVA'NIN EKRANINA GONDER`;
+      renderPixelIcons(sendBtn);
+    }
+    document.getElementById('inboxPanelTitle').textContent = 'EKRAN NOTLARI & SESLI KAPSUL';
     document.getElementById('pinTypeInput').value = 'visited';
     if (document.getElementById('view-settings').classList.contains('active')) switchTab('map');
   }
 
   renderPinPillsAndDetail();
+  renderSentNotes();
+  renderNotes();
+  renderVoices();
   if (mapObj) setTimeout(() => mapObj.invalidateSize(), 120);
   playRetroBeep(role === 'eva' ? 'eva' : 'startup');
 }
 
 function logoutAccount() {
+  stopActiveVoiceAudio();
   activeRole = '';
   activeMemoryOpen = false;
   sessionStorage.removeItem(SESSION_ROLE_KEY);
@@ -1219,18 +1248,109 @@ function openMediaLightbox(kind, src, title) {
 }
 
 // ============================================================================
-// ASK NOTLARI, LCD FISILTI & SESLI KAPSUL
+// EKRAN NOTLARI, GECMIS LISTE & CIHAZDAN OYNATILABILIR SESLI KAPSUL
 // ============================================================================
+function getRoleNoteMeta() {
+  const isEva = activeRole === 'eva';
+  return {
+    isEva,
+    author: activeRole ? ACCOUNTS[activeRole].author : 'BARAN',
+    target: isEva ? 'WALL-E' : 'EVA'
+  };
+}
+
+function ensureNoteIds() {
+  (appState.voices || []).forEach((v, idx) => {
+    if (!v.id) v.id = 'v_legacy_' + idx + '_' + (v.ts || 0);
+    if (!v.target) v.target = v.sender === 'BARAN' ? 'EVA' : 'WALL-E';
+  });
+  (appState.notes || []).forEach((n, idx) => {
+    if (!n.id) n.id = 'n_legacy_' + idx;
+    if (!n.target) n.target = n.author === 'BARAN' ? 'EVA' : 'WALL-E';
+  });
+}
+
+function formatDurationSec(sec) {
+  const s = Math.max(0, Math.floor(Number(sec) || 0));
+  const m = String(Math.floor(s / 60)).padStart(2, '0');
+  const r = String(s % 60).padStart(2, '0');
+  return `${m}:${r}`;
+}
+
+function renderSentNotes() {
+  const box = document.getElementById('sentNotesList');
+  const cnt = document.getElementById('sentNotesCount');
+  if (!box) return;
+  ensureNoteIds();
+  const { author } = getRoleNoteMeta();
+
+  const textItems = (appState.notes || [])
+    .filter(n => n.author === author)
+    .map((n, idx) => ({ kind: 'text', sortTs: n.ts || idx, item: n }));
+  const voiceItems = (appState.voices || [])
+    .filter(v => v.sender === author)
+    .map((v, idx) => ({ kind: 'voice', sortTs: v.ts || (1000 + idx), item: v }));
+
+  const sentAll = [...textItems, ...voiceItems].sort((a, b) => b.sortTs - a.sortTs);
+  if (cnt) cnt.textContent = String(sentAll.length);
+  box.innerHTML = '';
+
+  if (!sentAll.length) {
+    box.innerHTML = '<div style="font-size:8.5px;line-height:1.7;color:var(--text-dim);">HENUZ GONDERILEN NOT YOK.</div>';
+    return;
+  }
+
+  sentAll.forEach(({ kind, item }) => {
+    const card = document.createElement('div');
+    const cls = author === 'BARAN' ? 'from-baran' : 'from-sude';
+    card.className = `note-item ${cls}`;
+    const stamp = [item.date, item.time].filter(Boolean).join(' ');
+    if (kind === 'voice') {
+      const isPlaying = activeVoiceId === item.id && activeVoiceAudio && !activeVoiceAudio.paused;
+      card.innerHTML = `
+        <div class="note-head">
+          <span>[SES] -&gt; ${escapeHtml(item.target)} · ${escapeHtml(stamp)}</span>
+          <button type="button" class="note-del-btn" onclick="deleteVoiceNote('${escapeHtml(item.id)}')">SIL</button>
+        </div>
+        <div class="voice-player-row">
+          <button type="button" class="px-btn cyan sm voice-play-btn ${isPlaying ? 'playing' : ''}" data-voice-play="${escapeHtml(item.id)}" onclick="togglePlayVoice('${escapeHtml(item.id)}')">${isPlaying ? 'DURAKLAT' : '▶ PLAY'}</button>
+          <span class="voice-dur" data-voice-dur="${escapeHtml(item.id)}">${escapeHtml(item.duration || '00:00')}</span>
+        </div>
+      `;
+    } else {
+      card.innerHTML = `
+        <div class="note-head">
+          <span>-&gt; ${escapeHtml(item.target)} · ${escapeHtml(stamp)}</span>
+          <button type="button" class="note-del-btn" onclick="deleteNoteItem('${escapeHtml(item.id)}')">SIL</button>
+        </div>
+        <div class="note-body">${escapeHtml(item.text)}</div>
+      `;
+    }
+    box.appendChild(card);
+  });
+}
+
 function renderNotes() {
   const wall = document.getElementById('notesWall');
+  if (!wall) return;
+  ensureNoteIds();
   wall.innerHTML = '';
-  appState.notes.slice().reverse().forEach(n => {
+  const list = (appState.notes || []).slice().reverse();
+  if (!list.length) {
+    wall.innerHTML = '<div style="font-size:8.5px;line-height:1.7;color:var(--text-dim);">HENUZ NOT YOK.</div>';
+    return;
+  }
+  list.forEach(n => {
     const card = document.createElement('div');
     card.className = `note-item ${n.author === 'BARAN' ? 'from-baran' : 'from-sude'}`;
+    const stamp = [n.date, n.time].filter(Boolean).join(' ');
     card.innerHTML = `
       <div class="note-head">
-        <span>${n.author}</span>
-        <span>${n.date}</span>
+        <span>${escapeHtml(n.author)} -&gt; ${escapeHtml(n.target || (n.author === 'BARAN' ? 'EVA' : 'WALL-E'))}</span>
+        <div class="note-head-actions">
+          <span>${escapeHtml(stamp)}</span>
+          <button type="button" class="note-del-btn" onclick="deleteNoteItem('${escapeHtml(n.id)}')">SIL</button>
+        </div>
       </div>
       <div class="note-body">${escapeHtml(n.text)}</div>
     `;
@@ -1239,27 +1359,54 @@ function renderNotes() {
 }
 
 function addLoveNote() {
-  const text = document.getElementById('newNoteInput').value.trim();
-  if (!text) return;
-  const author = activeRole ? ACCOUNTS[activeRole].author : 'BARAN';
+  const inp = document.getElementById('newNoteInput');
+  const text = inp ? inp.value.trim() : '';
+  if (!text) { showToast('GONDERILECEK NOT YAZIN'); return; }
+  const { isEva, author, target } = getRoleNoteMeta();
   const d = new Date();
   const dateStr = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
-  appState.notes.push({ id: 'n_' + Date.now(), author, date: dateStr, text });
-  document.getElementById('newNoteInput').value = '';
+  const timeStr = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  appState.notes.push({
+    id: 'n_' + Date.now(),
+    author,
+    target,
+    date: dateStr,
+    time: timeStr,
+    ts: Date.now(),
+    text
+  });
+  inp.value = '';
   saveState();
+  renderSentNotes();
   renderNotes();
   playRetroBeep('eva');
-  showToast(`${author} IMZALI ASK NOTU EKLENDI`);
+  if (bleRxChar || robotLinkOk) {
+    if (isEva) sendRobotAction('from_eva', { msg: text.slice(0, 60) });
+    else sendRobotAction('sfx', { n: 'eva' });
+  }
+  showToast(target === 'EVA' ? "EVA'NIN EKRANINA NOT GONDERILDI" : "WALL-E'NIN EKRANINA NOT GONDERILDI");
+}
+
+function deleteNoteItem(id) {
+  appState.notes = (appState.notes || []).filter(n => n.id !== id);
+  saveState();
+  renderSentNotes();
+  renderNotes();
+  showToast('NOT SILINDI');
 }
 
 function previewLcdMsg(val) {
+  const l1 = document.getElementById('whisperL1');
+  const l2 = document.getElementById('whisperL2');
+  if (!l1 || !l2) return;
   const clean = (val || '').toUpperCase().replace(/[^A-Z0-9 .,!?:-]/g, ' ');
-  document.getElementById('whisperL1').textContent = clean.slice(0, 16).padEnd(16, ' ');
-  document.getElementById('whisperL2').textContent = clean.slice(16, 32).padEnd(16, ' ');
+  l1.textContent = clean.slice(0, 16).padEnd(16, ' ');
+  l2.textContent = clean.slice(16, 32).padEnd(16, ' ');
 }
 
 function sendWhisperToWalle() {
-  const val = document.getElementById('lcdWhisperInput').value.trim();
+  const inp = document.getElementById('lcdWhisperInput');
+  const val = inp ? inp.value.trim() : '';
   if (!val) { showToast('MESAJ YAZIN'); return; }
   const clean = val.toUpperCase();
   updateHudLcd(clean.slice(0, 16), clean.slice(16, 32) || 'HEDEF >> EVA');
@@ -1278,60 +1425,218 @@ function sendWhisperToWalle() {
   }
 }
 
+function syncVoicePlayerUI(vid, isPlaying, curSec = 0, totalSec = 0) {
+  if (!vid) return;
+  document.querySelectorAll(`[data-voice-play="${vid}"]`).forEach(btn => {
+    btn.classList.toggle('playing', !!isPlaying);
+    btn.textContent = isPlaying ? 'DURAKLAT' : '▶ PLAY';
+  });
+  const pct = totalSec > 0 ? Math.min(100, Math.round((curSec / totalSec) * 100)) : 0;
+  document.querySelectorAll(`[data-voice-fill="${vid}"]`).forEach(fill => {
+    fill.style.width = (isPlaying || curSec > 0) ? `${pct}%` : '0%';
+  });
+  document.querySelectorAll(`[data-voice-dur="${vid}"]`).forEach(lbl => {
+    const v = (appState.voices || []).find(x => x.id === vid);
+    const baseDur = (v && v.duration) || (totalSec > 0 ? formatDurationSec(totalSec) : '00:00');
+    lbl.textContent = (isPlaying || curSec > 0) && totalSec > 0
+      ? `${formatDurationSec(curSec)} / ${formatDurationSec(totalSec)}`
+      : baseDur;
+  });
+}
+
+function stopActiveVoiceAudio() {
+  const prevId = activeVoiceId;
+  if (activeVoiceAudio) {
+    try {
+      activeVoiceAudio.pause();
+      activeVoiceAudio.currentTime = 0;
+    } catch (e) {}
+    activeVoiceAudio = null;
+  }
+  activeVoiceId = '';
+  if (prevId) syncVoicePlayerUI(prevId, false, 0, 0);
+}
+
+function togglePlayVoice(voiceId) {
+  ensureNoteIds();
+  const v = (appState.voices || []).find(x => x.id === voiceId);
+  if (!v || !v.dataUrl) {
+    showToast('SES DOSYASI BULUNAMADI');
+    return;
+  }
+  if (activeVoiceId === voiceId && activeVoiceAudio) {
+    if (!activeVoiceAudio.paused) {
+      activeVoiceAudio.pause();
+      syncVoicePlayerUI(voiceId, false, activeVoiceAudio.currentTime, isFinite(activeVoiceAudio.duration) ? activeVoiceAudio.duration : 0);
+      return;
+    }
+    const resumePromise = activeVoiceAudio.play();
+    syncVoicePlayerUI(voiceId, true, activeVoiceAudio.currentTime, isFinite(activeVoiceAudio.duration) ? activeVoiceAudio.duration : 0);
+    if (resumePromise && resumePromise.catch) {
+      resumePromise.catch(() => {
+        stopActiveVoiceAudio();
+        showToast('CIHAZDAN SES OYNATILAMADI');
+      });
+    }
+    return;
+  }
+
+  stopActiveVoiceAudio();
+  const au = new Audio(v.dataUrl);
+  au.preload = 'auto';
+  activeVoiceAudio = au;
+  activeVoiceId = voiceId;
+  syncVoicePlayerUI(voiceId, true, 0, 0);
+
+  au.addEventListener('timeupdate', () => {
+    if (activeVoiceId !== voiceId) return;
+    const dur = isFinite(au.duration) ? au.duration : 0;
+    syncVoicePlayerUI(voiceId, !au.paused, au.currentTime, dur);
+  });
+  au.addEventListener('ended', () => {
+    if (activeVoiceId === voiceId) stopActiveVoiceAudio();
+  });
+  au.addEventListener('error', () => {
+    if (activeVoiceId === voiceId) stopActiveVoiceAudio();
+    showToast('BU SES KAYDI CIHAZDA OYNATILAMADI');
+  });
+
+  const p = au.play();
+  if (p && p.catch) {
+    p.catch(() => {
+      stopActiveVoiceAudio();
+      showToast('SES OYNATMA BASLATILAMADI');
+    });
+  }
+}
+
+function deleteVoiceNote(voiceId) {
+  if (activeVoiceId === voiceId) stopActiveVoiceAudio();
+  appState.voices = (appState.voices || []).filter(v => v.id !== voiceId);
+  saveState();
+  renderVoices();
+  renderSentNotes();
+  showToast('SESLI NOT SILINDI');
+}
+
 function renderVoices() {
   const box = document.getElementById('voiceList');
+  if (!box) return;
+  ensureNoteIds();
   box.innerHTML = '';
   if (!appState.voices.length) {
-    box.innerHTML = '<div style="font-size:12px;color:var(--text-dim);">HENUZ KAYITLI SES MESAJI YOK.</div>';
+    box.innerHTML = '<div style="font-size:8.5px;line-height:1.7;color:var(--text-dim);">HENUZ SESLI NOT YOK. SOLDAN KAYDET!</div>';
     return;
   }
   appState.voices.slice().reverse().forEach(v => {
     const item = document.createElement('div');
-    item.className = 'voice-item';
-    item.innerHTML = `<div class="note-head"><span>${v.sender}</span><span>${v.date}</span></div>`;
-    const au = document.createElement('audio');
-    au.controls = true;
-    au.src = v.dataUrl;
-    item.appendChild(au);
+    const cls = v.sender === 'BARAN' ? 'from-baran' : 'from-sude';
+    const isPlaying = activeVoiceId === v.id && activeVoiceAudio && !activeVoiceAudio.paused;
+    const stamp = [v.date, v.time].filter(Boolean).join(' ');
+    item.className = `voice-item ${cls}`;
+    item.innerHTML = `
+      <div class="note-head">
+        <span>${escapeHtml(v.sender)} -&gt; ${escapeHtml(v.target || (v.sender === 'BARAN' ? 'EVA' : 'WALL-E'))}</span>
+        <div class="note-head-actions">
+          <span>${escapeHtml(stamp)}</span>
+          <button type="button" class="note-del-btn" onclick="deleteVoiceNote('${escapeHtml(v.id)}')">SIL</button>
+        </div>
+      </div>
+      <div class="voice-player-row">
+        <button type="button" class="px-btn cyan sm voice-play-btn ${isPlaying ? 'playing' : ''}" data-voice-play="${escapeHtml(v.id)}" onclick="togglePlayVoice('${escapeHtml(v.id)}')">${isPlaying ? 'DURAKLAT' : '▶ PLAY'}</button>
+        <div class="voice-track">
+          <div class="voice-track-fill" data-voice-fill="${escapeHtml(v.id)}"></div>
+        </div>
+        <span class="voice-dur" data-voice-dur="${escapeHtml(v.id)}">${escapeHtml(v.duration || '00:00')}</span>
+      </div>
+    `;
     box.appendChild(item);
   });
 }
 
+function resetVoiceRecordButton() {
+  const btn = document.getElementById('recVoiceBtn');
+  const timerEl = document.getElementById('voiceRecTimer');
+  clearInterval(voiceRecTimer);
+  voiceRecTimer = null;
+  if (timerEl) { timerEl.style.display = 'none'; timerEl.textContent = '00:00'; }
+  if (btn) {
+    btn.classList.remove('danger');
+    btn.classList.add('cyan');
+    btn.innerHTML = '<span class="px-ico sm" data-ico="mic"></span> SESLI NOT KAYDET &amp; GONDER';
+    renderPixelIcons(btn);
+  }
+}
+
 async function toggleVoiceRecord() {
   const btn = document.getElementById('recVoiceBtn');
+  const timerEl = document.getElementById('voiceRecTimer');
   if (isRecording && mediaRec) {
     mediaRec.stop();
     isRecording = false;
-    btn.textContent = 'TARAYICIDAN SES KAYDET';
+    resetVoiceRecordButton();
+    return;
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
+    showToast('BU TARAYICI SES KAYDINI DESTEKLEMIYOR');
     return;
   }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     recChunks = [];
-    mediaRec = new MediaRecorder(stream);
-    mediaRec.ondataavailable = (e) => { if (e.data.size > 0) recChunks.push(e.data); };
+    const mimeCandidates = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
+    const supportedMime = mimeCandidates.find(m => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) || '';
+    mediaRec = supportedMime ? new MediaRecorder(stream, { mimeType: supportedMime }) : new MediaRecorder(stream);
+    voiceRecStartedAt = Date.now();
+    mediaRec.ondataavailable = (e) => { if (e.data && e.data.size > 0) recChunks.push(e.data); };
     mediaRec.onstop = () => {
       stream.getTracks().forEach(t => t.stop());
-      const blob = new Blob(recChunks, { type: 'audio/webm' });
+      const elapsedSec = Math.max(1, Math.round((Date.now() - voiceRecStartedAt) / 1000));
+      const actualMime = (mediaRec && mediaRec.mimeType) || (recChunks[0] && recChunks[0].type) || supportedMime || 'audio/webm';
+      const blob = new Blob(recChunks, { type: actualMime });
       const rd = new FileReader();
       rd.onload = () => {
+        const { author, target } = getRoleNoteMeta();
         const d = new Date();
+        const dateStr = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+        const timeStr = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
         appState.voices.push({
-          sender: activeRole ? ACCOUNTS[activeRole].author : 'BARAN',
-          date: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
+          id: 'v_' + Date.now(),
+          sender: author,
+          target,
+          date: dateStr,
+          time: timeStr,
+          ts: Date.now(),
+          duration: formatDurationSec(elapsedSec),
+          mimeType: actualMime,
           dataUrl: rd.result
         });
         saveState();
         renderVoices();
-        showToast('SESLI MESAJ EVA KUTUSUNA EKLENDI');
+        renderSentNotes();
+        showToast('SESLI NOT GONDERILDI VE SAG PANOYA EKLENDI');
       };
       rd.readAsDataURL(blob);
     };
     mediaRec.start();
     isRecording = true;
-    btn.textContent = 'KAYIT DURDUR [BITIR]';
-    showToast('KONUSUNUZ - KAYIT BASLADI');
+    if (btn) {
+      btn.classList.remove('cyan');
+      btn.classList.add('danger');
+      btn.innerHTML = '<span class="px-ico sm" data-ico="mic"></span> KAYDI BITIR &amp; GONDER';
+      renderPixelIcons(btn);
+    }
+    if (timerEl) {
+      timerEl.style.display = 'inline-block';
+      timerEl.textContent = '00:00';
+      clearInterval(voiceRecTimer);
+      voiceRecTimer = setInterval(() => {
+        timerEl.textContent = formatDurationSec((Date.now() - voiceRecStartedAt) / 1000);
+      }, 400);
+    }
+    showToast('KONUSUNUZ - SESLI NOT KAYDI BASLADI');
   } catch (err) {
+    resetVoiceRecordButton();
     showToast('MIKROFON IZNI VERILMEDI');
   }
 }
@@ -1872,6 +2177,7 @@ document.addEventListener('DOMContentLoaded', () => {
   updateStorageMeter();
   updateHudLcd(appState.robotState.lcd1, appState.robotState.lcd2);
   renderPinPillsAndDetail();
+  renderSentNotes();
   renderNotes();
   renderVoices();
   initMap();
@@ -1908,15 +2214,18 @@ document.addEventListener('DOMContentLoaded', () => {
   setRobotLinkStatus(false, '', navigator.bluetooth ? 'mixed' : 'nobt');
   syncRobotStatus(false);
 
-  // IndexedDB'deki buyuk/tam fotograf ve video arsivini yukle ve ekrani tazele
+  // IndexedDB'deki buyuk/tam fotograf, video ve ses arsivini yukle ve ekrani tazele
   idbLoadState().then((idbData) => {
     if (!idbData || !Array.isArray(idbData.pins)) return;
     const idbMedia = idbData.pins.reduce((n, p) => n + ((p.photos && p.photos.length) || 0) + ((p.videos && p.videos.length) || 0), 0);
     const lsMedia = (appState.pins || []).reduce((n, p) => n + ((p.photos && p.photos.length) || 0) + ((p.videos && p.videos.length) || 0), 0);
-    if (idbMedia > lsMedia || idbData.pins.length >= (appState.pins || []).length) {
+    const idbVoiceSize = (idbData.voices || []).reduce((n, v) => n + ((v.dataUrl && v.dataUrl.length) || 0), 0);
+    const lsVoiceSize = (appState.voices || []).reduce((n, v) => n + ((v.dataUrl && v.dataUrl.length) || 0), 0);
+    if (idbMedia > lsMedia || idbVoiceSize > lsVoiceSize || idbData.pins.length >= (appState.pins || []).length) {
       appState = { ...structuredClone(DEFAULT_DATA), ...idbData };
       renderMapMarkers();
       renderPinPillsAndDetail();
+      renderSentNotes();
       renderNotes();
       renderVoices();
       updateStorageMeter();
