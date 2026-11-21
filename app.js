@@ -229,6 +229,7 @@ let leafletMarkers = [];
 let tempSearchMarker = null;
 let pendingPhotos = [];
 let pendingVideos = [];
+let activeMemoryOpen = false;
 let mediaRec = null;
 let recChunks = [];
 let isRecording = false;
@@ -393,6 +394,7 @@ function applyAccountUI(role) {
 
 function logoutAccount() {
   activeRole = '';
+  activeMemoryOpen = false;
   sessionStorage.removeItem(SESSION_ROLE_KEY);
   document.body.classList.remove('role-walle', 'role-eva', 'scene-only');
   document.body.classList.add('locked');
@@ -814,11 +816,19 @@ function renderPinPillsAndDetail() {
   const pillBox = document.getElementById('pinPillList');
   if (pillBox) pillBox.innerHTML = '';
 
+  const wallBody = document.getElementById('memoryWallBody');
+  const badgeEl  = document.getElementById('memBadge');
+  const closeBtn = document.getElementById('memCloseBtn');
+
   if (!appState.pins.length) {
     appState.selectedPinId = '';
+    activeMemoryOpen = false;
     if (pillBox) {
       pillBox.innerHTML = '<div style="font-size:9px;line-height:1.6;color:var(--text-dim);">HENUZ KAYITLI SEHIR YOK — SEHIR ARA VEYA HARITAYA TIKLAYIP ILK ANINI EKLE.</div>';
     }
+    if (wallBody) wallBody.style.display = 'none';
+    if (badgeEl) badgeEl.style.display = 'none';
+    if (closeBtn) closeBtn.style.display = 'none';
     const pGrid = document.getElementById('memPhotos');
     if (pGrid) pGrid.innerHTML = '';
     return;
@@ -826,7 +836,7 @@ function renderPinPillsAndDetail() {
 
   appState.pins.forEach(pin => {
     const b = document.createElement('button');
-    b.className = `pin-pill ${pin.type === 'visited' ? 'walle' : 'eva'} ${pin.id === appState.selectedPinId ? 'active' : ''}`;
+    b.className = `pin-pill ${pin.type === 'visited' ? 'walle' : 'eva'} ${(activeMemoryOpen && pin.id === appState.selectedPinId) ? 'active' : ''}`;
     b.textContent = pin.city;
     b.onclick = () => {
       if (mapObj) mapObj.flyTo([pin.lat, pin.lng], 10, { duration: 0.7 });
@@ -837,6 +847,17 @@ function renderPinPillsAndDetail() {
 
   const pin = appState.pins.find(p => p.id === appState.selectedPinId) || appState.pins[0];
   appState.selectedPinId = pin.id;
+
+  if (!activeMemoryOpen) {
+    if (wallBody) wallBody.style.display = 'none';
+    if (badgeEl) badgeEl.style.display = 'none';
+    if (closeBtn) closeBtn.style.display = 'none';
+    return;
+  }
+
+  if (wallBody) wallBody.style.display = 'flex';
+  if (badgeEl) badgeEl.style.display = 'inline-block';
+  if (closeBtn) closeBtn.style.display = 'inline-flex';
   renderMemoryModalContent(pin);
 }
 
@@ -939,13 +960,19 @@ function renderMemoryModalContent(pin) {
 
 function openMemoryCard(id) {
   appState.selectedPinId = id;
+  activeMemoryOpen = true;
   saveState();
   renderPinPillsAndDetail();
-  const pin = appState.pins.find(p => p.id === id);
-  if (pin) {
-    renderMemoryModalContent(pin);
-    document.getElementById('memoryCardModal').classList.add('open');
+  if (mapObj) mapObj.closePopup();
+  const panel = document.getElementById('memoryWallPanel');
+  if (panel && window.innerWidth <= 720) {
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+}
+
+function closeMemoryWall() {
+  activeMemoryOpen = false;
+  renderPinPillsAndDetail();
 }
 
 function selectPin(id) {
@@ -1169,21 +1196,11 @@ function deleteSelectedPin() {
   if (!appState.pins.length) { showToast('SILINECEK PIN YOK'); return; }
   appState.pins = appState.pins.filter(p => p.id !== appState.selectedPinId);
   appState.selectedPinId = appState.pins.length ? appState.pins[0].id : '';
+  activeMemoryOpen = false;
   saveState();
-  closeModal('memoryCardModal');
   renderMapMarkers();
   renderPinPillsAndDetail();
   showToast('SECILI PIN SILINDI');
-}
-
-function sendCurrentPinToLcd() {
-  const pin = appState.pins.find(p => p.id === appState.selectedPinId);
-  if (!pin) { showToast('ONCE HARITADAN BIR SEHIR EKLEYIN'); return; }
-  const txt = (activeRole === 'eva' ? pin.evaNote : pin.walleNote) || pin.note || pin.date || 'ANI';
-  updateHudLcd(pin.city, txt.slice(0, 16));
-  sendRobotAction('lcd', { l1: pin.city, l2: txt.slice(0, 16) });
-  playRetroBeep('happy');
-  showToast(`GOGUS EKRANINA YANSITILDI: ${pin.city}`);
 }
 
 function openMediaLightbox(kind, src, title) {

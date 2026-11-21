@@ -125,6 +125,60 @@
 
             <div class="pin-list" id="pinPillList"></div>
           </div>
+
+          <!-- Sag: ANI DUVARI (Baslangicta alti bos; sehire basinca burada acilir) -->
+          <aside class="px-panel gold memory-card" id="memoryWallPanel">
+            <div class="sec-hdr">
+              <div class="sec-title">
+                <span class="px-ico" data-ico="camera"></span>
+                <span>ANI DUVARI</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span class="sec-badge" id="memBadge" style="display:none;">GIDILDI</span>
+                <button class="px-btn danger sm" id="memCloseBtn" style="display:none;" onclick="closeMemoryWall()">X</button>
+              </div>
+            </div>
+
+            <div id="memoryWallBody" style="display:none;flex-direction:column;gap:10px;">
+              <div class="mem-city" id="memCity">SEHIR</div>
+              <div class="mem-meta">
+                <span>TARIH &amp; KONUM: </span><span id="memCountry">TURKIYE // TARIH</span>
+              </div>
+
+              <label class="px-lbl" style="margin-top:2px;">FOTOGRAFLAR &amp; VIDEOLAR</label>
+              <div class="mem-photos" id="memPhotos"></div>
+
+              <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:2px;">
+                <label class="px-btn sm" style="cursor:pointer;">
+                  <span class="px-ico sm" data-ico="camera"></span> + FOTO / VIDEO EKLE
+                  <input type="file" accept="image/*,video/*" multiple style="display:none;" onchange="handlePhotoUpload(this.files, true); this.value='';" />
+                </label>
+                <button class="px-btn danger sm" onclick="deleteSelectedPin()">SIL</button>
+              </div>
+
+              <div class="thoughts-grid">
+                <div class="thought-box walle">
+                  <div class="thought-hdr">
+                    <span><span class="px-ico sm" data-ico="walle"></span> WALL-E'NIN YOLCULUK DUSUNCELERI</span>
+                    <span class="thought-lock" id="walleThoughtLock">BARAN</span>
+                  </div>
+                  <textarea class="px-in" id="memWalleInput" placeholder="Baran'in yolculuk dusuncesi..."></textarea>
+                  <div class="thought-readonly" id="memWalleRead" style="display:none;"></div>
+                  <button class="px-btn sm" id="memWalleSaveBtn" onclick="saveJourneyThought('walle')">KAYDET</button>
+                </div>
+
+                <div class="thought-box eva">
+                  <div class="thought-hdr">
+                    <span><span class="px-ico sm" data-ico="eva"></span> EVA'NIN YOLCULUK DUSUNCELERI</span>
+                    <span class="thought-lock" id="evaThoughtLock">SUDE</span>
+                  </div>
+                  <textarea class="px-in" id="memEvaInput" placeholder="Sude'nin yolculuk dusuncesi..."></textarea>
+                  <div class="thought-readonly" id="memEvaRead" style="display:none;"></div>
+                  <button class="px-btn eva sm" id="memEvaSaveBtn" onclick="saveJourneyThought('eva')">KAYDET</button>
+                </div>
+              </div>
+            </div>
+          </aside>
         </div>
       </section>
 
@@ -447,62 +501,6 @@
       <div class="mem-photos" id="pinPhotoThumbs" style="margin-top:6px;max-height:170px;overflow-y:auto;"></div>
 
       <button class="px-btn green" style="width:100%;margin-top:12px;" onclick="saveNewPin()">HARITAYA KAYDET</button>
-    </div>
-  </div>
-
-  <!-- MODAL: SEHIR ANI KARTI (TARIH, FOTO, VIDEO & MAVI/PEMBE DUSUNCELER) -->
-  <div class="px-modal" id="memoryCardModal" onclick="closeModal('memoryCardModal')">
-    <div class="px-panel gold strong px-modal-card wide memory-card" onclick="event.stopPropagation()">
-      <div class="sec-hdr">
-        <div class="sec-title">
-          <span class="px-ico" data-ico="camera"></span>
-          <span id="memCity">SEHIR ANISI</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:6px;">
-          <span class="sec-badge" id="memBadge">GIDILDI</span>
-          <button class="px-btn danger sm" onclick="closeModal('memoryCardModal')">X</button>
-        </div>
-      </div>
-
-      <div class="mem-meta">
-        <span>TARIH &amp; KONUM: </span><span id="memCountry">TURKIYE // TARIH</span>
-      </div>
-
-      <label class="px-lbl" style="margin-top:2px;">FOTOGRAFLAR &amp; VIDEOLAR</label>
-      <div class="mem-photos" id="memPhotos"></div>
-
-      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:2px;">
-        <label class="px-btn sm" style="cursor:pointer;">
-          <span class="px-ico sm" data-ico="camera"></span> + FOTO / VIDEO EKLE
-          <input type="file" accept="image/*,video/*" multiple style="display:none;" onchange="handlePhotoUpload(this.files, true); this.value='';" />
-        </label>
-        <button class="px-btn green sm" onclick="sendCurrentPinToLcd()">
-          <span class="px-ico sm" data-ico="walle"></span> EKRANA YANSIT
-        </button>
-        <button class="px-btn danger sm" onclick="deleteSelectedPin()">SIL</button>
-      </div>
-
-      <div class="thoughts-grid">
-        <div class="thought-box walle">
-          <div class="thought-hdr">
-            <span><span class="px-ico sm" data-ico="walle"></span> WALL-E'NIN YOLCULUK DUSUNCELERI</span>
-            <span class="thought-lock" id="walleThoughtLock">BARAN</span>
-          </div>
-          <textarea class="px-in" id="memWalleInput" placeholder="Baran'in yolculuk dusuncesi..."></textarea>
-          <div class="thought-readonly" id="memWalleRead" style="display:none;"></div>
-          <button class="px-btn sm" id="memWalleSaveBtn" onclick="saveJourneyThought('walle')">KAYDET</button>
-        </div>
-
-        <div class="thought-box eva">
-          <div class="thought-hdr">
-            <span><span class="px-ico sm" data-ico="eva"></span> EVA'NIN YOLCULUK DUSUNCELERI</span>
-            <span class="thought-lock" id="evaThoughtLock">SUDE</span>
-          </div>
-          <textarea class="px-in" id="memEvaInput" placeholder="Sude'nin yolculuk dusuncesi..."></textarea>
-          <div class="thought-readonly" id="memEvaRead" style="display:none;"></div>
-          <button class="px-btn eva sm" id="memEvaSaveBtn" onclick="saveJourneyThought('eva')">KAYDET</button>
-        </div>
-      </div>
     </div>
   </div>
 
