@@ -825,6 +825,100 @@ input[type="range"].px-range { width: 100%; accent-color: var(--walle-gold); cur
 }
 .sfx-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 
+/* Kumanda Sag Panel: Genis & Ferah SD Kart Parcalari + AI */
+.ctrl-right-col {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.ctrl-card {
+  padding: 16px;
+}
+.sd-song-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+.sd-song-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding: 14px;
+  border: 2px solid rgba(255, 122, 184, 0.58);
+  background: rgba(12, 22, 50, 0.78);
+  color: var(--text-main);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9.5px;
+  line-height: 1.6;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 #02050e;
+  transition: background 0.12s, border-color 0.12s, transform 0.06s;
+}
+.sd-song-btn:hover {
+  background: rgba(24, 42, 92, 0.9);
+  border-color: var(--eva-cyan);
+}
+.sd-song-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 #02050e;
+}
+.sd-song-btn.active {
+  border-color: var(--vfd-green);
+  background: rgba(14, 74, 44, 0.86);
+  color: #ecfdf5;
+}
+.sd-song-tag {
+  flex-shrink: 0;
+  font-size: 8px;
+  padding: 5px 9px;
+  border: 1px solid currentColor;
+  color: var(--eva-cyan);
+  white-space: nowrap;
+}
+.sd-song-btn.active .sd-song-tag {
+  color: var(--vfd-green);
+}
+
+.ai-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 10px;
+}
+input.px-in.ai-ask-input {
+  min-height: 46px;
+  padding: 12px;
+  font-size: 9.5px;
+}
+.ai-btn-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.ai-action-btn {
+  min-height: 46px;
+  padding: 12px 10px;
+  font-size: 8.5px;
+  white-space: normal;
+  text-align: center;
+}
+.ai-answer-box {
+  padding: 14px;
+  min-height: 92px;
+  border: 2px solid var(--eva-cyan);
+  background: rgba(3, 12, 28, 0.78);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9.5px;
+  line-height: 1.75;
+  color: var(--eva-cyan);
+  word-break: break-word;
+}
+
 /* Segmented Pixel Solar/Storage Gauge */
 .px-meter {
   display: grid;
@@ -1003,7 +1097,7 @@ body.scene-only .scene-fab { display: inline-flex; }
 .px-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 @media (max-width: 720px) {
-  .map-grid, .two-col, .thoughts-grid { grid-template-columns: 1fr; }
+  .map-grid, .two-col, .thoughts-grid, .ai-btn-row { grid-template-columns: 1fr; }
   .map-frame { height: 275px; }
   .hud-title { font-size: 9.5px; }
 }

@@ -180,6 +180,12 @@ function renderPixelIcons(root = document) {
 const STORAGE_KEY = 'walle_eva_universe_v3';
 const SESSION_ROLE_KEY = 'walle_eva_active_role';
 
+const DEFAULT_SD_SONGS = [
+  'I CANT HELP FALLING IN LOVE',
+  'LA VIDA EN ROSE',
+  'HIT THE ROAD JACK'
+];
+
 const DEFAULT_DATA = {
   sinceDate: '2025-05-14',
   lanUrl: 'http://walle.local',
@@ -196,7 +202,7 @@ const DEFAULT_DATA = {
     vol: 85,
     speed: 210,
     dance: true,
-    playingSong: '01. La Vie En Rose.mp3'
+    playingSong: 'DURDURULDU'
   },
   pins: [],
   notes: [
@@ -220,11 +226,7 @@ const DEFAULT_DATA = {
     }
   ],
   voices: [],
-  songs: [
-    '01. Put On Your Sunday Clothes.mp3',
-    '02. La Vie En Rose.mp3',
-    '03. Define Dancing.wav'
-  ]
+  songs: [...DEFAULT_SD_SONGS]
 };
 
 let appState = loadState();
@@ -244,6 +246,9 @@ let voiceRecStartedAt = 0;
 let activeVoiceAudio = null;
 let activeVoiceId = '';
 let currentSongIdx = 0;
+let activePlayingSongIdx = -1;
+let aiSpeechRec = null;
+let aiListening = false;
 let activeWavAudio = null;
 let robotLinkOk = false;
 
@@ -300,12 +305,23 @@ async function idbSaveState(stateObj) {
   } catch (e) { return false; }
 }
 
+function migrateSongsIfLegacy(songs) {
+  if (!Array.isArray(songs) || !songs.length) return [...DEFAULT_SD_SONGS];
+  const joined = songs.join('|');
+  if (joined.includes('Put On Your Sunday Clothes') || joined.includes('Define Dancing')) {
+    return [...DEFAULT_SD_SONGS];
+  }
+  return songs;
+}
+
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return structuredClone(DEFAULT_DATA);
     const parsed = JSON.parse(raw);
-    return { ...structuredClone(DEFAULT_DATA), ...parsed };
+    const merged = { ...structuredClone(DEFAULT_DATA), ...parsed };
+    merged.songs = migrateSongsIfLegacy(merged.songs);
+    return merged;
   } catch (e) {
     return structuredClone(DEFAULT_DATA);
   }
@@ -1689,18 +1705,42 @@ function setRobotLinkStatus(ok, base = '', reason = '') {
   }
 }
 
-function populateRemoteSongSelect(songs, activeIdx = -1) {
-  const sel = document.getElementById('remoteSongSel');
-  if (!sel || !songs || !songs.length) return;
-  sel.innerHTML = '';
-  songs.forEach((name, i) => {
-    const o = document.createElement('option');
-    o.value = String(i);
-    o.textContent = `${i + 1}. ${name}`;
-    if (i === activeIdx) o.selected = true;
-    sel.appendChild(o);
+function getDisplaySongTitle(raw, idx) {
+  const cleaned = String(raw || '')
+    .replace(/\.(mp3|wav|ogg|aac|flac|m4a)$/i, '')
+    .replace(/^0*\d+\s*[-._)]?\s*/, '')
+    .trim();
+  if (!cleaned && DEFAULT_SD_SONGS[idx]) return DEFAULT_SD_SONGS[idx];
+  if (/^(parca|track|song|sarki)\s*\d*$/i.test(cleaned) && DEFAULT_SD_SONGS[idx]) {
+    return DEFAULT_SD_SONGS[idx];
+  }
+  return (cleaned || DEFAULT_SD_SONGS[idx] || `PARCA ${idx + 1}`).toUpperCase();
+}
+
+function renderSongList(activeIdx = activePlayingSongIdx) {
+  const box = document.getElementById('sdSongList');
+  if (!box) return;
+  const list = (appState.songs && appState.songs.length) ? appState.songs : DEFAULT_SD_SONGS;
+  box.innerHTML = '';
+  list.forEach((raw, idx) => {
+    const title = getDisplaySongTitle(raw, idx);
+    const isPlaying = activeIdx === idx;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'sd-song-btn' + (isPlaying ? ' active' : '');
+    btn.dataset.songIdx = String(idx);
+    btn.onclick = () => playSongByIdx(idx);
+    btn.innerHTML = `
+      <span>${idx + 1}. ${escapeHtml(title)}</span>
+      <span class="sd-song-tag">${isPlaying ? 'CALIYOR' : 'CAL'}</span>
+    `;
+    box.appendChild(btn);
   });
-  sel.style.display = 'block';
+}
+
+function populateRemoteSongSelect(songs, activeIdx = -1) {
+  if (songs && songs.length) appState.songs = songs;
+  renderSongList(activeIdx);
 }
 
 function handleBleLine(line) {
@@ -1714,19 +1754,18 @@ function handleBleLine(line) {
         renderMeters();
       }
       if (s.play !== undefined) {
-        appState.robotState.playingSong = s.play || 'HAZIR (BEKLEMEDE)';
-        const lbl = document.getElementById('remoteSongLbl');
-        if (lbl) lbl.textContent = appState.robotState.playingSong;
+        appState.robotState.playingSong = s.play || 'DURDURULDU';
       }
       if (s.si !== undefined && s.si >= 0) {
         currentSongIdx = s.si;
-        const sel = document.getElementById('remoteSongSel');
-        if (sel && document.activeElement !== sel && sel.options.length > s.si) sel.value = String(s.si);
+        activePlayingSongIdx = s.play ? s.si : -1;
+        renderSongList(activePlayingSongIdx);
+      } else if (s.play === '') {
+        activePlayingSongIdx = -1;
+        renderSongList(-1);
       }
       if (s.dn !== undefined) {
         appState.robotState.dance = !!s.dn;
-        const db = document.getElementById('danceToggleBtn');
-        if (db) db.textContent = s.dn ? 'SARKIDA DANS: ACIK' : 'SARKIDA DANS: KAPALI';
       }
       if (s.vol !== undefined) {
         appState.robotState.vol = s.vol;
@@ -1755,7 +1794,7 @@ function handleBleLine(line) {
       const list = raw.split('|').filter(Boolean);
       if (list.length) {
         appState.songs = list;
-        populateRemoteSongSelect(list, currentSongIdx);
+        renderSongList(activePlayingSongIdx);
       }
     }
   } else if (line.startsWith('AI:')) {
@@ -1872,19 +1911,34 @@ function sendRobotConfigOverBle() {
 
 function playSongByIdx(idx) {
   if (idx === '' || idx === undefined) return;
-  currentSongIdx = Number(idx);
-  const s = appState.songs || [];
-  const track = s[currentSongIdx] || `Parca #${currentSongIdx + 1}`;
-  sendRobotAction('play_song', { idx: currentSongIdx }).then(r => {
+  const i = Number(idx);
+  currentSongIdx = i;
+  activePlayingSongIdx = i;
+  const s = (appState.songs && appState.songs.length) ? appState.songs : DEFAULT_SD_SONGS;
+  const title = getDisplaySongTitle(s[i], i);
+  renderSongList(i);
+
+  sendRobotAction('play_song', { idx: i }).then(r => {
     if (r && r._sent) {
-      appState.robotState.playingSong = track;
-      document.getElementById('remoteSongLbl').textContent = track;
-      updateHudLcd('MUZIK CALIYOR', track.slice(0, 16));
-      showToast(`ROBOTTA CALIYOR: ${track}`);
+      appState.robotState.playingSong = title;
+      updateHudLcd('MUZIK CALIYOR', title.slice(0, 16));
+      showToast(`ROBOTTA CALIYOR: ${i + 1}. ${title}`);
     } else {
-      showToast('Once BLUETOOTH BAGLAN ile robota baglan!');
+      appState.robotState.playingSong = title;
+      playRetroBeep('happy');
+      showToast(`SD PARCA SECILDI: ${i + 1}. ${title} (BT baglaninca robottan calar)`);
     }
   });
+}
+
+async function stopRobotMusic() {
+  if (activeWavAudio) { activeWavAudio.pause(); activeWavAudio.currentTime = 0; }
+  activePlayingSongIdx = -1;
+  appState.robotState.playingSong = 'DURDURULDU';
+  renderSongList(-1);
+  updateHudLcd('WALLE DINLEMEDE', 'MUZIK DURDU');
+  const r = await sendRobotAction('mode', { m: 'stop_music' });
+  showToast(r && r._sent ? 'ROBOT MUZIGI DURDURULDU' : 'MUZIK DURDURULDU');
 }
 
 function openRobotDirect(url) {
@@ -2053,17 +2107,9 @@ function sendVol(val) {
 }
 
 async function triggerMusic(cmd) {
-  if (cmd === 'stop') {
-    if (activeWavAudio) { activeWavAudio.pause(); activeWavAudio.currentTime = 0; }
-    appState.robotState.playingSong = 'DURDURULDU';
-    document.getElementById('remoteSongLbl').textContent = 'DURDURULDU';
-    updateHudLcd('WALLE DINLEMEDE', 'MUZIK DURDU');
-    const r = await sendRobotAction('mode', { m: 'stop_music' });
-    showToast(r && r._sent ? 'ROBOT MUZIGI DURDURULDU' : 'ROBOT BAGLI DEGIL - DURDURULDU');
-    return;
-  }
+  if (cmd === 'stop') return stopRobotMusic();
 
-  const s = appState.songs && appState.songs.length ? appState.songs : ['1.mp3', '2.mp3', '3.mp3'];
+  const s = appState.songs && appState.songs.length ? appState.songs : DEFAULT_SD_SONGS;
   if (cmd === 'next') currentSongIdx = (currentSongIdx + 1) % s.length;
   else if (cmd === 'prev') currentSongIdx = (currentSongIdx - 1 + s.length) % s.length;
   else if (cmd === 'rand') {
@@ -2071,49 +2117,123 @@ async function triggerMusic(cmd) {
     if (s.length > 1 && nextIdx === currentSongIdx) nextIdx = (nextIdx + 1) % s.length;
     currentSongIdx = nextIdx;
   }
-
-  const r = await sendRobotAction('play_song', { cmd });
-  if (r && r._sent) {
-    if (r._via === 'ble') {
-      showToast('Sarki komutu Bluetooth ile robota iletildi...');
-      return;
-    }
-    if (r.ok) {
-      const track = (r.playing || s[currentSongIdx]).split('/').pop();
-      appState.robotState.playingSong = track;
-      document.getElementById('remoteSongLbl').textContent = track;
-      updateHudLcd('MUZIK CALIYOR', track.slice(0, 16));
-      playRetroBeep('happy');
-      showToast(`ROBOTTA CALIYOR: ${track}`);
-    } else {
-      showToast(r.error || 'SD KARTTA SARKI BULUNAMADI');
-    }
-    return;
-  }
-
-  const track = s[currentSongIdx % s.length];
-  appState.robotState.playingSong = `${track} (ONIZLEME)`;
-  document.getElementById('remoteSongLbl').textContent = appState.robotState.playingSong;
-  updateHudLcd('ROBOT BAGLI DEGIL', track.slice(0, 16));
-  playRetroBeep('happy');
-  showToast('ROBOT BAGLI DEGIL! BLUETOOTH BAGLAN butonuna basip WALL-E Robot sec.');
+  return playSongByIdx(currentSongIdx);
 }
 
 function toggleDance() {
   appState.robotState.dance = !appState.robotState.dance;
-  document.getElementById('danceToggleBtn').textContent =
-    appState.robotState.dance ? 'SARKIDA DANS: ACIK' : 'SARKIDA DANS: KAPALI';
+  const db = document.getElementById('danceToggleBtn');
+  if (db) db.textContent = appState.robotState.dance ? 'SARKIDA DANS: ACIK' : 'SARKIDA DANS: KAPALI';
   sendRobotAction('dance');
 }
 
+function resetAiMicBtn() {
+  const btn = document.getElementById('aiMicAskBtn');
+  const badge = document.getElementById('aiModeBadge');
+  aiListening = false;
+  if (btn) {
+    btn.classList.remove('danger');
+    btn.classList.add('cyan');
+    btn.innerHTML = '<span class="px-ico sm" data-ico="mic"></span> MIKROFONLA SOR';
+    renderPixelIcons(btn);
+  }
+  if (badge) badge.textContent = 'HAZIR';
+}
+
+function askAiWithMic() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  if (aiListening && aiSpeechRec) {
+    try { aiSpeechRec.stop(); } catch (e) {}
+    resetAiMicBtn();
+    return;
+  }
+
+  if (SpeechRec) {
+    try {
+      const rec = new SpeechRec();
+      aiSpeechRec = rec;
+      rec.lang = 'tr-TR';
+      rec.interimResults = true;
+      rec.maxAlternatives = 1;
+
+      const btn = document.getElementById('aiMicAskBtn');
+      const badge = document.getElementById('aiModeBadge');
+      const inp = document.getElementById('remoteAiInput');
+      const out = document.getElementById('remoteAiOut');
+
+      aiListening = true;
+      if (btn) {
+        btn.classList.remove('cyan');
+        btn.classList.add('danger');
+        btn.innerHTML = '<span class="px-ico sm" data-ico="mic"></span> DINLIYOR... [DUR]';
+        renderPixelIcons(btn);
+      }
+      if (badge) badge.textContent = 'DINLIYOR';
+      if (out) out.textContent = '> MIKROFON ACIK, KONUSABILIRSIN...';
+
+      let finalTranscript = '';
+      let lastTranscript = '';
+      rec.onresult = (ev) => {
+        let interim = '';
+        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+          const t = ev.results[i][0].transcript;
+          if (ev.results[i].isFinal) finalTranscript += t + ' ';
+          else interim += t;
+        }
+        const combined = (finalTranscript + interim).trim();
+        if (combined) lastTranscript = combined;
+        if (inp && combined) inp.value = combined;
+      };
+      rec.onerror = (ev) => {
+        resetAiMicBtn();
+        if ((bleRxChar || robotLinkOk) && ev.error !== 'not-allowed') {
+          sendRobotAction('listen', { mode: 'auto' });
+          if (out) out.textContent = '> WALL-E MIKROFONU DINLIYOR...';
+        } else {
+          if (out) out.textContent = '> MIKROFON IZNI ALINAMADI. YAZARAK SORABILIRSIN.';
+          showToast('MIKROFON IZNI VERILMEDI');
+        }
+      };
+      rec.onend = () => {
+        const spoken = (finalTranscript || lastTranscript || '').trim();
+        resetAiMicBtn();
+        if (spoken) sendRemoteAi();
+      };
+      rec.start();
+      return;
+    } catch (e) {
+      resetAiMicBtn();
+    }
+  }
+
+  if (bleRxChar || robotLinkOk) {
+    const out = document.getElementById('remoteAiOut');
+    if (out) out.textContent = '> WALL-E MIKROFONU DINLIYOR...';
+    sendRobotAction('listen', { mode: 'auto' });
+    showToast('WALL-E MIKROFONU DINLEMEYE BASLADI');
+  } else {
+    showToast('TARAYICI SES TANIMA DESTEKLEMIYOR - YAZILI SOR');
+  }
+}
+
 function sendRemoteAi() {
-  const q = document.getElementById('remoteAiInput').value.trim();
-  if (!q) return;
-  document.getElementById('remoteAiOut').textContent = '> WALLE ARASTIRIYOR...';
+  if (aiListening && aiSpeechRec) {
+    try { aiSpeechRec.stop(); } catch (e) {}
+    resetAiMicBtn();
+  }
+  const inp = document.getElementById('remoteAiInput');
+  const out = document.getElementById('remoteAiOut');
+  const badge = document.getElementById('aiModeBadge');
+  const q = inp ? inp.value.trim() : '';
+  if (!q) { showToast('LUTFEN BIR SORU YAZIN'); return; }
+  if (out) out.textContent = '> WALL-E ARASTIRIYOR...';
+  if (badge) badge.textContent = 'ARASTIRIYOR';
   updateHudLcd('WALLE DINLIYOR', 'ARASTIRIYOR...');
   sendRobotAction('ask', { q }).then((res) => {
-    const ans = (res && res.answer) ? res.answer : `("${q.slice(0, 22)}") Baran & EVA icin hep hazirim!`;
-    document.getElementById('remoteAiOut').textContent = '> ' + ans;
+    const ans = (res && res.answer) ? res.answer : `("${q.slice(0, 32)}") WALL-E & EVA icin hep hazirim!`;
+    if (out) out.textContent = '> ' + ans;
+    if (badge) badge.textContent = (res && res._sent) ? 'CEVAPLANDI' : 'HAZIR';
     updateHudLcd('BULUNAN CEVAP>>>', ans.slice(0, 16));
     playRetroBeep('happy');
   });
@@ -2180,6 +2300,7 @@ document.addEventListener('DOMContentLoaded', () => {
   renderSentNotes();
   renderNotes();
   renderVoices();
+  renderSongList(activePlayingSongIdx);
   initMap();
 
   document.getElementById('cfgSince').value = appState.sinceDate;
@@ -2188,12 +2309,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('cfgQuotaMb').value = String(appState.quotaMb || 5);
   document.getElementById('cfgAlertEmail').value = appState.alertEmail || 'sudesenturk6507@gmail.com';
   document.getElementById('cfgAlertWebhook').value = appState.alertWebhook || '';
-  document.getElementById('remoteSongLbl').textContent = appState.robotState.playingSong;
   document.getElementById('pwmOut').textContent = appState.robotState.speed;
   document.getElementById('spdRange').value = appState.robotState.speed;
   document.getElementById('volOut').textContent = appState.robotState.vol;
   document.getElementById('volRange').value = appState.robotState.vol;
-  previewLcdMsg('SENI SEVIYORUM  KALP EVA');
 
   // Sehir arama listesini disari tiklayinca veya ESC ile kapat
   document.addEventListener('click', (e) => {
@@ -2223,11 +2342,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const lsVoiceSize = (appState.voices || []).reduce((n, v) => n + ((v.dataUrl && v.dataUrl.length) || 0), 0);
     if (idbMedia > lsMedia || idbVoiceSize > lsVoiceSize || idbData.pins.length >= (appState.pins || []).length) {
       appState = { ...structuredClone(DEFAULT_DATA), ...idbData };
+      appState.songs = migrateSongsIfLegacy(appState.songs);
       renderMapMarkers();
       renderPinPillsAndDetail();
       renderSentNotes();
       renderNotes();
       renderVoices();
+      renderSongList(activePlayingSongIdx);
       updateStorageMeter();
     }
   });

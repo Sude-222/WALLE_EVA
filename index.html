@@ -302,60 +302,43 @@
             <input type="range" class="px-range" id="volRange" min="10" max="100" value="85" oninput="document.getElementById('volOut').textContent=this.value" onchange="sendVol(this.value)" />
           </div>
 
-          <!-- Sag: Muzik Deck, 6 Arcade Efekt & AI -->
-          <div class="px-panel eva">
-            <div class="sec-hdr">
-              <div class="sec-title">
-                <span class="px-ico" data-ico="music"></span>
-                <span>MUZIK, SES EFEKTI &amp; AI</span>
+          <!-- Sag: SD Kart Parcalari + AI'a Yazili & Sesli Soru -->
+          <div class="ctrl-right-col" id="ctrlRightCol">
+            <div class="px-panel eva ctrl-card" id="sdSongsPanel">
+              <div class="sec-hdr">
+                <div class="sec-title">
+                  <span class="px-ico" data-ico="music"></span>
+                  <span>SD KART PARCALARI</span>
+                </div>
+                <button type="button" class="px-btn danger sm" id="stopMusicBtn" onclick="stopRobotMusic()">DURDUR</button>
               </div>
-              <span class="sec-badge" id="ctrlLinkBadge">YEREL MOD</span>
+
+              <div class="sd-song-list" id="sdSongList"></div>
             </div>
 
-            <div id="ctrlLinkBar" style="padding:7px 9px;border:2px solid rgba(103,212,255,0.45);background:rgba(6,18,36,0.78);font-size:12px;color:#bae6fd;margin-bottom:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:space-between;">
-              <span id="ctrlLinkMsg">Internetin kesilmeden Bluetooth ile WALL-E'ye baglanabilirsin.</span>
-              <div style="display:flex;gap:5px;flex-wrap:wrap;">
-                <button class="px-btn green sm" id="bleConnectBtn" onclick="toggleRobotBle()">BLUETOOTH BAGLAN</button>
-                <button class="px-btn gold sm" onclick="openRobotDirect('http://192.168.4.1')">192.168.4.1</button>
-                <button class="px-btn sm" onclick="syncRobotStatus(true)">YENILE</button>
+            <div class="px-panel ctrl-card" id="aiAskPanel">
+              <div class="sec-hdr">
+                <div class="sec-title">
+                  <span class="px-ico" data-ico="walle"></span>
+                  <span>WALL-E AI ASISTAN</span>
+                </div>
+                <span class="sec-badge" id="aiModeBadge">HAZIR</span>
               </div>
-            </div>
 
-            <div style="padding:7px 9px;border:2px solid rgba(88,255,154,0.5);background:rgba(2,20,12,0.72);font-size:13px;color:var(--vfd-green);margin-bottom:8px;">
-              PARCA: <span id="remoteSongLbl">...</span>
-            </div>
-            <select class="px-in" id="remoteSongSel" style="display:none;margin-bottom:8px;" onchange="playSongByIdx(this.value)"></select>
+              <div class="ai-panel-body">
+                <input type="text" class="px-in ai-ask-input" id="remoteAiInput" placeholder="Sorunu yaz veya mikrofonla konus..." onkeydown="if(event.key==='Enter') sendRemoteAi()" />
 
-            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px;">
-              <button class="console-key" onclick="triggerMusic('prev')">ONCEKI</button>
-              <button class="console-key green" onclick="triggerMusic('rand')">RASTGELE</button>
-              <button class="console-key" onclick="triggerMusic('next')">SONRAKI</button>
-              <button class="console-key pink" onclick="triggerMusic('stop')">DUR</button>
-            </div>
+                <div class="ai-btn-row">
+                  <button type="button" class="px-btn green ai-action-btn" id="aiSendTextBtn" onclick="sendRemoteAi()">
+                    <span class="px-ico sm" data-ico="note"></span> YAZILI SOR
+                  </button>
+                  <button type="button" class="px-btn cyan ai-action-btn" id="aiMicAskBtn" onclick="askAiWithMic()">
+                    <span class="px-ico sm" data-ico="mic"></span> MIKROFONLA SOR
+                  </button>
+                </div>
 
-            <button class="console-key gold" id="danceToggleBtn" style="width:100%;margin-bottom:10px;" onclick="toggleDance()">SARKIDA DANS: ACIK</button>
-
-            <label class="px-lbl">WALL-E SES EFEKTLERI</label>
-            <div class="sfx-grid" style="margin-bottom:10px;">
-              <button class="console-key gold" onclick="triggerSfx('walle')">WALL-E</button>
-              <button class="console-key pink" onclick="triggerSfx('eva')">EVA</button>
-              <button class="console-key green" onclick="triggerSfx('happy')">MUTLU</button>
-              <button class="console-key gold" onclick="triggerSfx('tada')">TA-DA</button>
-              <button class="console-key" onclick="triggerSfx('suprise')">SURPRIZ</button>
-              <button class="console-key" onclick="triggerSfx('startup')">ACILIS</button>
-            </div>
-
-            <label class="px-lbl">UZAKTAN GEMINI AI SORGU (LCD CEVAP)</label>
-            <div style="display:flex;gap:7px;">
-              <input type="text" class="px-in" id="remoteAiInput" value="EVA icin guzel bir cumle soyle" />
-              <button class="px-btn green sm" onclick="sendRemoteAi()">SOR</button>
-            </div>
-            <div style="margin-top:8px;padding:8px;border:2px solid var(--eva-cyan);background:rgba(3,12,28,0.78);font-family:'Press Start 2P',monospace;font-size:9px;line-height:1.65;color:var(--eva-cyan);min-height:52px;" id="remoteAiOut">
-              &gt; SISTEM HAZIR.
-            </div>
-            <div class="lcd-box-big" style="margin-top:8px;">
-              <div class="lcd-line" id="bigLcd1">   WALLE &amp; EVA  </div>
-              <div class="lcd-line" id="bigLcd2">  SISTEM AKTIF  </div>
+                <div class="ai-answer-box" id="remoteAiOut">&gt; SISTEM HAZIR. SORUNU BEKLIYORUM.</div>
+              </div>
             </div>
           </div>
         </div>
