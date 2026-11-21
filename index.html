@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="WALL-E & EVA" />
+  <title>WALL-E &amp; EVA // Anı Haritası ve Kumanda</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&family=Press+Start+2P&family=Silkscreen:wght@400;700&family=VT323&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="locked">
+  <!-- HD Arka Plan Katmanlari -->
+  <div class="bg-scene"></div>
+  <div class="bg-vignette"></div>
+
+  <!-- 2 HESAPLI PIKSEL GIRIS KAPISI (brn123 = WALL-E | Always = EVA) -->
+  <div class="auth-overlay" id="authGate">
+    <div class="px-panel auth-card">
+      <div class="sec-hdr">
+        <div class="sec-title">
+          <span class="px-ico" data-ico="lock"></span>
+          <span>HESAP GIRISI</span>
+        </div>
+        <span class="sec-badge">WALL-E / EVA</span>
+      </div>
+
+      <div style="font-size:13px;color:var(--text-dim);line-height:1.45;">
+        Hesabini sec ve sifreni gir. Her hesabin arayuzu ve yetkileri ayri acilir.
+      </div>
+
+      <div class="acc-switch">
+        <button type="button" class="acc-btn walle selected" id="pickWalleBtn" onclick="selectLoginAccount('walle')">
+          <span class="px-ico lg" data-ico="walle"></span>
+          <span>1. WALL-E</span>
+          <span style="font-family:'Pixelify Sans';font-size:12px;color:var(--walle-gold);">[BARAN]</span>
+        </button>
+        <button type="button" class="acc-btn eva" id="pickEvaBtn" onclick="selectLoginAccount('eva')">
+          <span class="px-ico lg" data-ico="eva"></span>
+          <span>2. EVA</span>
+          <span style="font-family:'Pixelify Sans';font-size:12px;color:var(--eva-pink);">[SUDE]</span>
+        </button>
+      </div>
+
+      <label class="px-lbl" for="loginPass">HESAP SIFRESI (BUYUK / KUCUK HARF DUYARLI)</label>
+      <input type="password" class="px-in" id="loginPass" placeholder="Sifreni yaz ve ENTER bas..." onkeydown="if(event.key==='Enter') attemptLogin()" />
+
+      <div id="loginErr" style="display:none;color:#fda4af;font-size:12px;font-weight:700;margin-top:6px;">
+        HATALI SIFRE! WALL-E veya EVA sifreni kontrol et.
+      </div>
+
+      <button class="px-btn gold" style="width:100%;margin-top:10px;" onclick="attemptLogin()">
+        <span class="px-ico sm" data-ico="heart"></span> EVRENE GIRIS YAP
+      </button>
+    </div>
+  </div>
+
+  <!-- HUD Gizliyken Geri Acma Butonu -->
+  <button class="px-btn gold scene-fab" onclick="toggleSceneOnly()">
+    <span class="px-ico sm" data-ico="eye"></span> HUD GOSTER
+  </button>
+
+  <div class="app-shell">
+    <!-- UST KOZMIK PIKSEL HUD -->
+    <header class="px-panel hud-bar">
+      <div class="hud-brand">
+        <span class="px-ico lg" id="hudRoleIcon" data-ico="walle"></span>
+        <span class="px-ico lg" data-ico="heart"></span>
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span class="bnl-chip" id="hudBadgeChip">WALL-E</span>
+            <span class="hud-title" id="hudHeroTitle">WALL-E &amp; EVA</span>
+          </div>
+          <div class="hud-sub" id="sinceLabel">OPERATOR: BARAN // BIRLIKTE: 0 GUN</div>
+        </div>
+      </div>
+
+      <div class="hud-metrics">
+        <div class="lcd-mini" id="hudLcd">WALLE &amp; EVA | HAZIR</div>
+        <div class="stat-chip">
+          <span class="px-ico sm" data-ico="battery"></span>
+          <span id="hudBat">%78</span>
+        </div>
+        <div class="stat-chip" id="hudStorageChip" title="Depolama doluluk orani">
+          <span>DEP %0</span>
+        </div>
+        <button class="px-btn eva sm" onclick="triggerEvaSurprise()">
+          <span class="px-ico sm" data-ico="heart"></span> EVA KALP
+        </button>
+        <button class="px-btn sm" onclick="toggleSceneOnly()" title="Arka plani temiz izle">
+          <span class="px-ico sm" data-ico="eye"></span> SAHNE
+        </button>
+        <button class="px-btn danger sm" onclick="logoutAccount()" title="Hesap degistir">
+          <span class="px-ico sm" data-ico="lock"></span> CIKIS
+        </button>
+      </div>
+    </header>
+
+    <!-- EVA HESABI ICIN OZEL KARSILAMA BANDI -->
+    <div class="eva-inbox-banner role-only-eva" id="evaWelcomeBanner">
+      <b>HOSGELDIN SUDE [EVA PANELI]</b> — Baran'dan gelen son sesli surpriz ve notlar "NOTLAR" sekmesinde senin icin one alindi. Haritadan istedigin sehre tiklayip kendi anilarimizi da ekleyebilirsin.
+    </div>
+
+    <!-- WALL-E HESABI ICIN OZEL KARSILAMA BANDI -->
+    <div class="eva-inbox-banner role-only-walle" style="background:rgba(140,86,10,0.48);border-color:var(--border-gold);">
+      <b>HOSGELDIN BARAN [WALL-E PANELI]</b> — EVA'ya uzaktan mesaj yollayabilir, haritadan sehir arayip fotograf ekleyebilir ve robotu yonetebilirsin.
+    </div>
+
+    <!-- ANA CALISMA ALANI -->
+    <main class="workspace">
+
+      <!-- 1. SEKME: DUNYA ANI HARITASI -->
+      <section class="tab-view active" id="view-map">
+        <div class="map-grid">
+          <!-- Sol: Renkli Yaklasabilen Dunya Haritasi + Sehir Arama -->
+          <div class="px-panel">
+            <div class="sec-hdr">
+              <div class="sec-title">
+                <span class="px-ico" data-ico="map"></span>
+                <span>DUNYA ANI HARITASI</span>
+              </div>
+              <span class="sec-badge" id="mapPickBanner">SEHRE TIKLA VEYA ARA</span>
+            </div>
+
+            <!-- Sehir Arama Cubugu -->
+            <div class="search-bar-wrap">
+              <input type="text" class="px-in" id="citySearchInput" placeholder="Sehir ara (orn: Roma, Kadikoy, Paris, Tokyo)..." onkeydown="if(event.key==='Enter') searchCity()" />
+              <button class="px-btn gold sm" onclick="searchCity()">SEHIR ARA</button>
+              <div class="search-results" id="citySearchResults"></div>
+            </div>
+
+            <div class="map-frame">
+              <div id="worldMap"></div>
+            </div>
+
+            <div class="map-toolbar">
+              <div class="pin-legend">
+                <span class="legend-item"><span class="px-ico sm" data-ico="pinGold"></span> GIDILDI (WALL-E)</span>
+                <span class="legend-item"><span class="px-ico sm" data-ico="pinCyan"></span> HAYAL (EVA)</span>
+              </div>
+              <div style="display:flex;gap:7px;flex-wrap:wrap;">
+                <button class="px-btn gold sm" onclick="openAddPinModal()">
+                  <span class="px-ico sm" data-ico="plus"></span> YENI ANI EKLE
+                </button>
+              </div>
+            </div>
+
+            <div class="pin-list" id="pinPillList"></div>
+          </div>
+
+          <!-- Sag: Secili Sehir / Ani Karti -->
+          <aside class="px-panel gold memory-card">
+            <div class="sec-hdr">
+              <div class="sec-title">
+                <span class="px-ico" data-ico="camera"></span>
+                <span>SECILI ANI KARTI</span>
+              </div>
+              <span class="sec-badge" id="memBadge">GIDILDI</span>
+            </div>
+
+            <div class="mem-meta">
+              <span id="memCountry">TURKIYE // 14.05.2025</span>
+            </div>
+            <div class="mem-city" id="memCity">ISTANBUL</div>
+            <div class="mem-note" id="memNote">Anilar yukleniyor...</div>
+
+            <div class="mem-photos" id="memPhotos"></div>
+
+            <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:4px;">
+              <label class="px-btn sm" style="cursor:pointer;">
+                <span class="px-ico sm" data-ico="camera"></span> FOTO EKLE
+                <input type="file" accept="image/*" multiple style="display:none;" onchange="handlePhotoUpload(this.files, true)" />
+              </label>
+              <button class="px-btn sm" onclick="openEditNoteModal()">NOT DUZENLE</button>
+              <button class="px-btn green sm" onclick="sendCurrentPinToLcd()">
+                <span class="px-ico sm" data-ico="walle"></span> EKRANA YANSIT
+              </button>
+              <button class="px-btn danger sm" onclick="deleteSelectedPin()">SIL</button>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- 2. SEKME: ASK NOTLARI & EVA KAPSULU -->
+      <section class="tab-view" id="view-notes">
+        <div class="two-col">
+          <!-- Sol: EVA Gelince Oncelikli Ses & Notlar, WALL-E'de Fisilti & Gonderim -->
+          <div class="px-panel eva" id="notesVoicePanel">
+            <div class="sec-hdr">
+              <div class="sec-title">
+                <span class="px-ico" data-ico="mic"></span>
+                <span id="voicePanelTitle">EVA SESLI KAPSUL</span>
+              </div>
+              <span class="sec-badge">AUDIO</span>
+            </div>
+
+            <button class="px-btn eva" id="recVoiceBtn" style="width:100%;" onclick="toggleVoiceRecord()">
+              <span class="px-ico sm" data-ico="mic"></span> TARAYICIDAN SES KAYDET
+            </button>
+            <div class="voice-list" id="voiceList"></div>
+
+            <div style="margin-top:16px;padding-top:10px;border-top:2px dashed rgba(255,122,184,0.4);">
+              <div class="sec-title" style="margin-bottom:8px;">
+                <span class="px-ico sm" data-ico="heart"></span>
+                <span>ASK NOTLARI DUVARI</span>
+              </div>
+              <div class="notes-wall" id="notesWall"></div>
+            </div>
+          </div>
+
+          <!-- Sag: Gogus Ekranina Fisilda + Yeni Not Birak -->
+          <div class="px-panel gold" id="notesComposePanel">
+            <div class="sec-hdr">
+              <div class="sec-title">
+                <span class="px-ico" data-ico="walle"></span>
+                <span id="composePanelTitle">GOGUS EKRANINA FISILDA</span>
+              </div>
+              <span class="sec-badge">1602 LCD</span>
+            </div>
+
+            <label class="px-lbl">ROBOTUN GOGUS EKRANINA YAZILACAK MESAJ (MAX 32 KARAKTER)</label>
+            <input type="text" class="px-in" id="lcdWhisperInput" maxlength="32" value="SENI SEVIYORUM  KALP EVA" oninput="previewLcdMsg(this.value)" placeholder="Kisa mesaj yaz..." />
+
+            <div class="lcd-box-big">
+              <div class="lcd-line" id="whisperL1">SENI SEVIYORUM  </div>
+              <div class="lcd-line" id="whisperL2">KALP EVA        </div>
+            </div>
+
+            <button class="px-btn gold" style="width:100%;" onclick="sendWhisperToWalle()">
+              <span class="px-ico sm" data-ico="heart"></span> EKRANA GONDER VE SES CAL
+            </button>
+
+            <div style="margin-top:16px;padding-top:10px;border-top:2px dashed rgba(246,191,66,0.4);">
+              <div class="sec-title" style="margin-bottom:8px;">
+                <span class="px-ico sm" data-ico="note"></span>
+                <span id="noteComposeHeading">ORTAK PANOYA ASK NOTU BIRAK</span>
+              </div>
+              <label class="px-lbl">NOTUN (OTOMATIK HESABINLA IMZALANIR)</label>
+              <textarea class="px-in" id="newNoteInput" placeholder="Bugunku notunu yaz..."></textarea>
+              <button class="px-btn eva" style="width:100%;margin-top:8px;" onclick="addLoveNote()">
+                <span class="px-ico sm" data-ico="plus"></span> PANOYA EKLE
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. SEKME: KUMANDA (SADECE TANK SURUS, MUZIK, EFEKT & AI) -->
+      <section class="tab-view" id="view-ctrl">
+        <div class="two-col">
+          <!-- Sol: Arcade Tank Joystick & Hiz/Ses -->
+          <div class="px-panel gold">
+            <div class="sec-hdr">
+              <div class="sec-title">
+                <span class="px-ico" data-ico="gamepad"></span>
+                <span>MEKATRONIK PALET KUMANDASI</span>
+              </div>
+              <span class="sec-badge">DRV8833</span>
+            </div>
+
+            <div class="arcade-socket">
+              <div class="dpad-grid" oncontextmenu="return false;">
+                <div></div>
+                <button class="arcade-arrow-btn" aria-label="ILERI" title="ILERI" onpointerdown="sendDrive('fwd')" onpointerup="sendDrive('stop')" onpointerleave="sendDrive('stop')" onpointercancel="sendDrive('stop')">
+                  <img src="using_pictures/icons/arrow_up.png" alt="ILERI" />
+                </button>
+                <div></div>
+                <button class="arcade-arrow-btn" aria-label="SOL" title="SOL" onpointerdown="sendDrive('left')" onpointerup="sendDrive('stop')" onpointerleave="sendDrive('stop')" onpointercancel="sendDrive('stop')">
+                  <img src="using_pictures/icons/arrow_left.png" alt="SOL" />
+                </button>
+                <button class="arcade-stop" aria-label="DUR" title="DUR" onclick="sendDrive('stop')">
+                  <span class="px-ico sm" data-ico="stop"></span><span>DUR</span>
+                </button>
+                <button class="arcade-arrow-btn" aria-label="SAG" title="SAG" onpointerdown="sendDrive('right')" onpointerup="sendDrive('stop')" onpointerleave="sendDrive('stop')" onpointercancel="sendDrive('stop')">
+                  <img src="using_pictures/icons/arrow_right.png" alt="SAG" />
+                </button>
+                <div></div>
+                <button class="arcade-arrow-btn" aria-label="GERI" title="GERI" onpointerdown="sendDrive('back')" onpointerup="sendDrive('stop')" onpointerleave="sendDrive('stop')" onpointercancel="sendDrive('stop')">
+                  <img src="using_pictures/icons/arrow_down.png" alt="GERI" />
+                </button>
+                <div></div>
+              </div>
+            </div>
+
+            <div class="arcade-actions">
+              <button class="console-key gold" onclick="sendDrive('spin')">360 SEVINC DONUSU</button>
+              <button class="console-key green" onclick="sendRobotAction('mode',{m:'solar'})">GUNES MODU</button>
+            </div>
+
+            <label class="px-lbl">PALET MOTOR HIZI (PWM: <span id="pwmOut">210</span>)</label>
+            <input type="range" class="px-range" id="spdRange" min="110" max="255" value="210" oninput="document.getElementById('pwmOut').textContent=this.value" onchange="sendSpeed(this.value)" />
+
+            <label class="px-lbl">HOPARLOR SES (% <span id="volOut">85</span>)</label>
+            <input type="range" class="px-range" id="volRange" min="10" max="100" value="85" oninput="document.getElementById('volOut').textContent=this.value" onchange="sendVol(this.value)" />
+          </div>
+
+          <!-- Sag: Muzik Deck, 6 Arcade Efekt & AI -->
+          <div class="px-panel eva">
+            <div class="sec-hdr">
+              <div class="sec-title">
+                <span class="px-ico" data-ico="music"></span>
+                <span>MUZIK, SES EFEKTI &amp; AI</span>
+              </div>
+              <span class="sec-badge">WALLE AUDIO</span>
+            </div>
+
+            <div style="padding:7px 9px;border:2px solid rgba(88,255,154,0.5);background:rgba(2,20,12,0.72);font-size:13px;color:var(--vfd-green);margin-bottom:8px;">
+              PARCA: <span id="remoteSongLbl">...</span>
+            </div>
+
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px;">
+              <button class="console-key" onclick="triggerMusic('prev')">ONCEKI</button>
+              <button class="console-key green" onclick="triggerMusic('rand')">RASTGELE</button>
+              <button class="console-key" onclick="triggerMusic('next')">SONRAKI</button>
+              <button class="console-key pink" onclick="sendRobotAction('mode',{m:'stop_music'})">DUR</button>
+            </div>
+
+            <button class="console-key gold" id="danceToggleBtn" style="width:100%;margin-bottom:10px;" onclick="toggleDance()">SARKIDA DANS: ACIK</button>
+
+            <label class="px-lbl">WALL-E SES EFEKTLERI</label>
+            <div class="sfx-grid" style="margin-bottom:10px;">
+              <button class="console-key gold" onclick="triggerSfx('walle')">WALL-E</button>
+              <button class="console-key pink" onclick="triggerSfx('eva')">EVA</button>
+              <button class="console-key green" onclick="triggerSfx('happy')">MUTLU</button>
+              <button class="console-key gold" onclick="triggerSfx('tada')">TA-DA</button>
+              <button class="console-key" onclick="triggerSfx('suprise')">SURPRIZ</button>
+              <button class="console-key" onclick="triggerSfx('startup')">ACILIS</button>
+            </div>
+
+            <label class="px-lbl">UZAKTAN GEMINI AI SORGU (LCD CEVAP)</label>
+            <div style="display:flex;gap:7px;">
+              <input type="text" class="px-in" id="remoteAiInput" value="EVA icin guzel bir cumle soyle" />
+              <button class="px-btn green sm" onclick="sendRemoteAi()">SOR</button>
+            </div>
+            <div style="margin-top:8px;padding:8px;border:2px solid var(--eva-cyan);background:rgba(3,12,28,0.78);font-family:'VT323',monospace;font-size:20px;color:var(--eva-cyan);min-height:52px;" id="remoteAiOut">
+              &gt; SISTEM HAZIR.
+            </div>
+            <div class="lcd-box-big" style="font-size:21px;margin-top:8px;">
+              <div class="lcd-line" id="bigLcd1">   WALLE &amp; EVA  </div>
+              <div class="lcd-line" id="bigLcd2">  SISTEM AKTIF  </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. SEKME: AYARLAR (DEPOLAMA, E-POSTA UYARI & BULUT BAGLANTISI) -->
+      <section class="tab-view" id="view-settings">
+        <div class="two-col">
+          <div class="px-panel">
+            <div class="sec-hdr">
+              <div class="sec-title">
+                <span class="px-ico" data-ico="gear"></span>
+                <span>DEPOLAMA &amp; E-POSTA BILDIRIM</span>
+              </div>
+              <span class="sec-badge">%80 ESIK</span>
+            </div>
+
+            <label class="px-lbl">DEPOLAMA KULLANIMI: <span id="storageStats">0 KB / 5 MB (%0)</span></label>
+            <div class="px-meter" id="storageBar"></div>
+
+            <div class="storage-alert-box" id="storageAlertBanner">
+              UYARI: Depolama %80 sinirini gecti! Bildirim adresi: <b>sudesenturk6507@gmail.com</b>
+            </div>
+
+            <label class="px-lbl">KOTA LIMITI (YEREL VEYA UCRETSIZ BULUT)</label>
+            <select class="px-in" id="cfgQuotaMb">
+              <option value="5">Tarayici LocalStorage (5 MB)</option>
+              <option value="500">Supabase Ucretsiz Plan (500 MB)</option>
+              <option value="1024">Firebase Spark Ucretsiz Plan (1024 MB)</option>
+            </select>
+
+            <label class="px-lbl">BILDIRIM E-POSTASI (DEPOLAMA %80 DOLUNCA)</label>
+            <input type="email" class="px-in" id="cfgAlertEmail" value="sudesenturk6507@gmail.com" />
+
+            <label class="px-lbl">OTOMATIK E-POSTA WEBHOOK (FORMSPREE / EMAILJS URL - OPSIYONEL)</label>
+            <input type="text" class="px-in" id="cfgAlertWebhook" placeholder="https://formspree.io/f/xxxxxx" />
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+              <button class="px-btn eva" style="flex:1;" onclick="sendStorageEmailAlert(true)">E-POSTA BILDIRIM TEST</button>
+              <button class="px-btn" style="flex:1;" onclick="exportJsonBackup()">JSON YEDEK INDIR</button>
+            </div>
+          </div>
+
+          <div class="px-panel gold">
+            <div class="sec-hdr">
+              <div class="sec-title">
+                <span class="px-ico" data-ico="wifi"></span>
+                <span>ROBOT &amp; BULUT KOPRUSU</span>
+              </div>
+              <span class="sec-badge">BAGLANTI</span>
+            </div>
+
+            <label class="px-lbl">SOLAR PIL DURUMU</label>
+            <div class="px-meter" id="remoteSolarMeter" style="margin-bottom:8px;"></div>
+
+            <label class="px-lbl">TANISMA TARIHI (UST SAYAC ICIN)</label>
+            <input type="date" class="px-in" id="cfgSince" value="2025-05-14" />
+
+            <label class="px-lbl">AYNI EVDE YEREL ROBOT ADRESI</label>
+            <input type="text" class="px-in" id="cfgLanUrl" value="http://walle.local" />
+
+            <label class="px-lbl">BULUT VERITABANI URL (.firebaseio.com)</label>
+            <input type="text" class="px-in" id="cfgCloudUrl" placeholder="https://proje-default-rtdb.firebaseio.com" />
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+              <button class="px-btn green" style="flex:1;" onclick="saveBridgeSettings()">AYARLARI KAYDET</button>
+              <button class="px-btn gold" style="flex:1;" onclick="openDirectLanRemote()">YEREL KUMANDA AC</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ALT SABIT 4 SEKME DOCK -->
+  <nav class="bottom-nav">
+    <button class="nav-tab active" data-tab="map" onclick="switchTab('map')">
+      <span class="px-ico" data-ico="map"></span><span>HARITA</span>
+    </button>
+    <button class="nav-tab" data-tab="notes" onclick="switchTab('notes')">
+      <span class="px-ico" data-ico="note"></span><span>NOTLAR</span>
+    </button>
+    <button class="nav-tab" data-tab="ctrl" onclick="switchTab('ctrl')">
+      <span class="px-ico" data-ico="gamepad"></span><span>KUMANDA</span>
+    </button>
+    <button class="nav-tab" data-tab="settings" onclick="switchTab('settings')">
+      <span class="px-ico" data-ico="gear"></span><span>AYARLAR</span>
+    </button>
+  </nav>
+
+  <!-- MODAL: YENI ANI / PIN EKLEME -->
+  <div class="px-modal" id="addPinModal">
+    <div class="px-panel gold strong px-modal-card">
+      <div class="sec-hdr">
+        <div class="sec-title">
+          <span class="px-ico" data-ico="pinGold"></span>
+          <span>SEHRE FOTOGRAF &amp; NOT EKLE</span>
+        </div>
+        <button class="px-btn danger sm" onclick="closeModal('addPinModal')">X</button>
+      </div>
+
+      <label class="px-lbl">PIN KATEGORISI</label>
+      <select class="px-in" id="pinTypeInput">
+        <option value="visited">GIDILDI [ALTIN WALL-E PIN]</option>
+        <option value="dream">HAYAL / HEDEF [MAVI EVA PIN]</option>
+      </select>
+
+      <label class="px-lbl">SEHIR / MEKAN</label>
+      <input type="text" class="px-in" id="pinCityInput" placeholder="ORN: IZMIR" />
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div>
+          <label class="px-lbl">ULKE / BOLGE</label>
+          <input type="text" class="px-in" id="pinCountryInput" placeholder="TURKIYE" />
+        </div>
+        <div>
+          <label class="px-lbl">TARIH</label>
+          <input type="text" class="px-in" id="pinDateInput" placeholder="21.11.2026" />
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div>
+          <label class="px-lbl">ENLEM (LAT)</label>
+          <input type="number" step="0.0001" class="px-in" id="pinLatInput" value="38.4237" />
+        </div>
+        <div>
+          <label class="px-lbl">BOYLAM (LNG)</label>
+          <input type="number" step="0.0001" class="px-in" id="pinLngInput" value="27.1428" />
+        </div>
+      </div>
+
+      <label class="px-lbl">ANI NOTU / HIKAYE</label>
+      <textarea class="px-in" id="pinNoteInput" placeholder="Burada neler yaptik?"></textarea>
+
+      <label class="px-btn sm" style="margin-top:8px;cursor:pointer;">
+        <span class="px-ico sm" data-ico="camera"></span> FOTOGRAF SEC [MAX 3]
+        <input type="file" accept="image/*" multiple style="display:none;" onchange="handlePhotoUpload(this.files, false)" />
+      </label>
+      <div id="pinPhotoPreview" style="font-size:12px;color:var(--eva-cyan);margin-top:4px;">0 FOTOGRAF SECILDI</div>
+
+      <button class="px-btn green" style="width:100%;margin-top:12px;" onclick="saveNewPin()">HARITAYA KAYDET</button>
+    </div>
+  </div>
+
+  <!-- MODAL: SECILI SEHRE HIZLI NOT DUZENLEME -->
+  <div class="px-modal" id="editNoteModal">
+    <div class="px-panel strong px-modal-card">
+      <div class="sec-hdr">
+        <span class="sec-title">ANI NOTUNU DUZENLE</span>
+        <button class="px-btn danger sm" onclick="closeModal('editNoteModal')">X</button>
+      </div>
+      <textarea class="px-in" id="editPinNoteArea"></textarea>
+      <button class="px-btn green" style="width:100%;margin-top:10px;" onclick="saveEditedPinNote()">NOTU KAYDET</button>
+    </div>
+  </div>
+
+  <!-- MODAL: BUYUK FOTOGRAF GORUNTULEYICI -->
+  <div class="px-modal" id="photoModal" onclick="closeModal('photoModal')">
+    <div class="px-panel strong px-modal-card" onclick="event.stopPropagation()">
+      <div class="sec-hdr">
+        <span class="sec-title" id="photoBoxCap">ANI FOTOGRAFI</span>
+        <button class="px-btn danger sm" onclick="closeModal('photoModal')">X</button>
+      </div>
+      <img id="photoBoxImg" src="" alt="Ani" style="width:100%;display:block;border:2px solid var(--border-gold);" />
+    </div>
+  </div>
+
+  <div class="px-toast" id="toastEl"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
