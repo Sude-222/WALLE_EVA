@@ -227,8 +227,16 @@ const DEFAULT_DATA = {
     }
   ],
   voices: [],
+  deletedIds: {},
+  metaUpdatedAt: 0,
   songs: [...DEFAULT_SD_SONGS]
 };
+
+let cloudInitialSynced = false;
+let lastSyncedCloudRev = 0;
+let lastCloudCheckAt = 0;
+let cloudSyncInFlight = false;
+let cloudPushQueued = false;
 
 let appState = loadState();
 let activeRole = sessionStorage.getItem(SESSION_ROLE_KEY) || '';
@@ -766,8 +774,10 @@ function populateScoreSelect(selEl, selectedVal) {
       selEl.appendChild(o);
     }
   }
-  const parsed = parseJourneyScore(selectedVal);
-  selEl.value = parsed !== null ? String(parsed) : '';
+  if (document.activeElement !== selEl) {
+    const parsed = parseJourneyScore(selectedVal);
+    selEl.value = parsed !== null ? String(parsed) : '';
+  }
 }
 
 function buildPinPopupHtml(pin) {
@@ -1127,9 +1137,11 @@ function renderMemoryModalContent(pin) {
   populateScoreSelect(wScIn, pin.walleScore);
   populateScoreSelect(eScIn, pin.evaScore);
 
+  const ae = document.activeElement;
   if (wIn && wRead && wBtn) {
     if (activeRole === 'walle') {
-      wIn.style.display = 'block'; wIn.value = walleText;
+      wIn.style.display = 'block';
+      if (ae !== wIn) wIn.value = walleText;
       wBtn.style.display = 'inline-flex';
       wRead.style.display = 'none';
       if (wScIn) wScIn.style.display = 'inline-block';
@@ -1151,7 +1163,8 @@ function renderMemoryModalContent(pin) {
 
   if (eIn && eRead && eBtn) {
     if (activeRole === 'eva') {
-      eIn.style.display = 'block'; eIn.value = evaText;
+      eIn.style.display = 'block';
+      if (ae !== eIn) eIn.value = evaText;
       eBtn.style.display = 'inline-flex';
       eRead.style.display = 'none';
       if (eScIn) eScIn.style.display = 'inline-block';
@@ -1175,7 +1188,7 @@ function renderMemoryModalContent(pin) {
 function openMemoryCard(id) {
   appState.selectedPinId = id;
   activeMemoryOpen = true;
-  saveState();
+  persistRawState();
   renderPinPillsAndDetail();
   if (mapObj) mapObj.closePopup();
   const panel = document.getElementById('memoryWallPanel');
@@ -1191,7 +1204,7 @@ function closeMemoryWall() {
 
 function selectPin(id) {
   appState.selectedPinId = id;
-  saveState();
+  persistRawState();
   renderPinPillsAndDetail();
 }
 
@@ -1203,8 +1216,10 @@ function onThoughtScoreChange(role, rawVal) {
   const pin = appState.pins.find(p => p.id === appState.selectedPinId);
   if (!pin) return;
   const parsed = parseJourneyScore(rawVal);
-  if (role === 'walle') pin.walleScore = parsed;
-  else pin.evaScore = parsed;
+  const now = Date.now();
+  if (role === 'walle') { pin.walleScore = parsed; pin.walleTs = now; }
+  else { pin.evaScore = parsed; pin.evaTs = now; }
+  pin.updatedAt = now;
   saveState();
   renderMapMarkers();
   renderPinPillsAndDetail();
@@ -1219,15 +1234,19 @@ function saveJourneyThought(role) {
   }
   const pin = appState.pins.find(p => p.id === appState.selectedPinId);
   if (!pin) return;
+  const now = Date.now();
   if (role === 'walle') {
     pin.walleNote = document.getElementById('memWalleInput').value.trim();
     const scEl = document.getElementById('memWalleScoreInput');
     if (scEl) pin.walleScore = parseJourneyScore(scEl.value);
+    pin.walleTs = now;
   } else {
     pin.evaNote = document.getElementById('memEvaInput').value.trim();
     const scEl = document.getElementById('memEvaScoreInput');
     if (scEl) pin.evaScore = parseJourneyScore(scEl.value);
+    pin.evaTs = now;
   }
+  pin.updatedAt = now;
   saveState();
   renderMapMarkers();
   renderPinPillsAndDetail();
@@ -1339,6 +1358,17 @@ function compressImageFile(file) {
   });
 }
 
+function blobToDataUrl(blob) {
+  return new Promise((resolve) => {
+    try {
+      const rd = new FileReader();
+      rd.onload = () => resolve(rd.result || '');
+      rd.onerror = () => resolve('');
+      rd.readAsDataURL(blob);
+    } catch (e) { resolve(''); }
+  });
+}
+
 async function handlePhotoUpload(files, addToCurrentPin = false) {
   const arr = Array.from(files || []);
   if (!arr.length) return;
@@ -1354,7 +1384,8 @@ async function handlePhotoUpload(files, addToCurrentPin = false) {
       if (f.size > 120 * 1024 * 1024) {
         failed++;
       } else {
-        newVideos.push({ id: 'vid_' + Date.now() + '_' + i, name: f.name || 'video.mp4', mime: f.type || 'video/mp4', size: f.size, blob: f });
+        const dataUrl = f.size <= 6 * 1024 * 1024 ? await blobToDataUrl(f) : '';
+        newVideos.push({ id: 'vid_' + Date.now() + '_' + i, name: f.name || 'video.mp4', mime: f.type || 'video/mp4', size: f.size, blob: f, dataUrl });
       }
     } else {
       const res = await compressImageFile(f);
@@ -1405,8 +1436,9 @@ function saveNewPin() {
   const title = jRaw || (sameCityCount > 0 ? `${city} YOLCULUGU #${sameCityCount + 1}` : `${city} YOLCULUGU`);
   const initialThought = document.getElementById('pinNoteInput').value.trim();
   const initialScore = parseJourneyScore(document.getElementById('pinScoreInput') ? document.getElementById('pinScoreInput').value : '');
+  const now = Date.now();
   const pin = {
-    id: 'pin_' + Date.now(),
+    id: 'pin_' + now,
     title,
     city,
     country: (document.getElementById('pinCountryInput').value.trim() || 'DUNYA').toUpperCase(),
@@ -1419,6 +1451,9 @@ function saveNewPin() {
     evaNote:    activeRole === 'eva'   ? initialThought : '',
     walleScore: activeRole === 'walle' ? initialScore   : null,
     evaScore:   activeRole === 'eva'   ? initialScore   : null,
+    walleTs:    activeRole === 'walle' ? now : 0,
+    evaTs:      activeRole === 'eva'   ? now : 0,
+    updatedAt:  now,
     photos: [...pendingPhotos],
     videos: [...pendingVideos]
   };
@@ -1439,8 +1474,15 @@ function saveNewPin() {
   showToast(`${title} (${pin.city}) EKLENDI`);
 }
 
+function markDeletedId(id) {
+  if (!id) return;
+  if (!appState.deletedIds || typeof appState.deletedIds !== 'object') appState.deletedIds = {};
+  appState.deletedIds[id] = Date.now();
+}
+
 function deleteSelectedPin() {
   if (!appState.pins.length) { showToast('SILINECEK PIN YOK'); return; }
+  markDeletedId(appState.selectedPinId);
   appState.pins = appState.pins.filter(p => p.id !== appState.selectedPinId);
   appState.selectedPinId = appState.pins.length ? appState.pins[0].id : '';
   activeMemoryOpen = false;
@@ -1607,6 +1649,7 @@ function addLoveNote() {
 }
 
 function deleteNoteItem(id) {
+  markDeletedId(id);
   appState.notes = (appState.notes || []).filter(n => n.id !== id);
   saveState();
   renderSentNotes();
@@ -1731,6 +1774,7 @@ function togglePlayVoice(voiceId) {
 
 function deleteVoiceNote(voiceId) {
   if (activeVoiceId === voiceId) stopActiveVoiceAudio();
+  markDeletedId(voiceId);
   appState.voices = (appState.voices || []).filter(v => v.id !== voiceId);
   saveState();
   renderVoices();
@@ -2450,32 +2494,321 @@ function openDirectLanRemote() {
 function saveBridgeSettings() {
   appState.sinceDate = document.getElementById('cfgSince').value || '2025-05-14';
   appState.lanUrl = document.getElementById('cfgLanUrl').value.trim() || 'http://walle.local';
-  appState.cloudDbUrl = document.getElementById('cfgCloudUrl').value.trim();
-  appState.quotaMb = Number(document.getElementById('cfgQuotaMb').value) || 5;
+  const rawCloud = document.getElementById('cfgCloudUrl').value.trim();
+  const prevCloud = appState.cloudDbUrl || '';
+  appState.cloudDbUrl = rawCloud ? normalizeCloudBase(rawCloud) : '';
+  document.getElementById('cfgCloudUrl').value = appState.cloudDbUrl;
+  let quotaVal = Number(document.getElementById('cfgQuotaMb').value) || 5;
+  if (appState.cloudDbUrl && !prevCloud && quotaVal === 5) {
+    quotaVal = 1024;
+    document.getElementById('cfgQuotaMb').value = '1024';
+  }
+  appState.quotaMb = quotaVal;
   appState.alertEmail = document.getElementById('cfgAlertEmail').value.trim() || 'sudesenturk6507@gmail.com';
   const wEmailEl = document.getElementById('cfgWalleEmail');
   appState.walleEmail = wEmailEl ? wEmailEl.value.trim() : '';
   appState.alertWebhook = document.getElementById('cfgAlertWebhook').value.trim();
-  saveState();
+  appState.metaUpdatedAt = Date.now();
+
+  if (appState.cloudDbUrl !== prevCloud) {
+    cloudInitialSynced = false;
+    lastSyncedCloudRev = 0;
+  }
+
+  persistRawState();
+  updateStorageMeter();
   updateRelationshipTimer();
-  showToast('SITE & DEPOLAMA AYARLARI KAYDEDILDI');
+
+  if (appState.cloudDbUrl) {
+    syncCloudNow();
+  } else {
+    setCloudStatus('BULUT DURUMU: PASIF (Firebase URL girip kaydet)', false);
+    showToast('SITE & DEPOLAMA AYARLARI KAYDEDILDI');
+  }
+}
+
+function normalizeCloudBase(url) {
+  return String(url || '').trim().replace(/\/+$/, '').replace(/\/walle_universe(?:\.json)?$/i, '').replace(/\.json$/i, '');
+}
+
+function setCloudStatus(text, ok) {
+  const el = document.getElementById('cloudStatusBox');
+  if (!el) return;
+  el.textContent = text;
+  el.style.borderColor = ok === true ? 'rgba(88, 255, 154, 0.7)' : (ok === false ? 'rgba(253, 164, 175, 0.8)' : 'rgba(103, 212, 255, 0.45)');
+  el.style.color = ok === true ? '#86efac' : (ok === false ? '#fecdd3' : 'var(--eva-cyan)');
+}
+
+function toArrayOrValues(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.filter(Boolean);
+  if (typeof raw === 'object') return Object.values(raw).filter(Boolean);
+  return [];
+}
+
+function mergePinFields(localPin, remotePin) {
+  if (!localPin) return { ...remotePin };
+  if (!remotePin) return { ...localPin };
+  const merged = { ...localPin };
+  if ((remotePin.updatedAt || 0) >= (localPin.updatedAt || 0)) {
+    merged.title = remotePin.title || merged.title;
+    merged.type  = remotePin.type || merged.type;
+    merged.date  = remotePin.date || merged.date;
+  }
+  if ((remotePin.walleTs || 0) > (localPin.walleTs || 0) || (!localPin.walleNote && remotePin.walleNote) || (localPin.walleScore == null && remotePin.walleScore != null)) {
+    merged.walleNote  = remotePin.walleNote !== undefined ? remotePin.walleNote : merged.walleNote;
+    merged.walleScore = remotePin.walleScore !== undefined ? remotePin.walleScore : merged.walleScore;
+    merged.walleTs    = Math.max(localPin.walleTs || 0, remotePin.walleTs || 0);
+  }
+  if ((remotePin.evaTs || 0) > (localPin.evaTs || 0) || (!localPin.evaNote && remotePin.evaNote) || (localPin.evaScore == null && remotePin.evaScore != null)) {
+    merged.evaNote  = remotePin.evaNote !== undefined ? remotePin.evaNote : merged.evaNote;
+    merged.evaScore = remotePin.evaScore !== undefined ? remotePin.evaScore : merged.evaScore;
+    merged.evaTs    = Math.max(localPin.evaTs || 0, remotePin.evaTs || 0);
+  }
+  merged.photos = Array.from(new Set([...(localPin.photos || []), ...(remotePin.photos || [])].filter(Boolean)));
+  const vidMap = new Map();
+  [...(localPin.videos || []), ...(remotePin.videos || [])].forEach((v, i) => {
+    if (!v) return;
+    const key = v.id || v.name || ('v_' + i);
+    const prev = vidMap.get(key) || {};
+    vidMap.set(key, { ...prev, ...v, dataUrl: v.dataUrl || prev.dataUrl || '' });
+  });
+  merged.videos = Array.from(vidMap.values());
+  merged.updatedAt = Math.max(localPin.updatedAt || 0, remotePin.updatedAt || 0);
+  return merged;
+}
+
+function mergeCloudSnapshot(remote) {
+  if (!remote || typeof remote !== 'object') return false;
+  let changed = false;
+
+  const delMap = { ...(appState.deletedIds || {}), ...(remote.deleted || {}) };
+  appState.deletedIds = delMap;
+
+  // 1. Pins merge
+  const pinMap = new Map();
+  (appState.pins || []).forEach(p => { if (p && p.id && !delMap[p.id]) pinMap.set(p.id, p); });
+  toArrayOrValues(remote.pins).forEach(rp => {
+    if (!rp || !rp.id || delMap[rp.id]) return;
+    const lp = pinMap.get(rp.id);
+    pinMap.set(rp.id, mergePinFields(lp, rp));
+    changed = true;
+  });
+  appState.pins = Array.from(pinMap.values()).filter(p => !delMap[p.id]);
+
+  // 2. Notes merge
+  const noteMap = new Map();
+  (appState.notes || []).forEach(n => { if (n && n.id && !delMap[n.id]) noteMap.set(n.id, n); });
+  toArrayOrValues(remote.notes).forEach(rn => {
+    if (!rn || !rn.id || delMap[rn.id]) return;
+    if (!noteMap.has(rn.id)) changed = true;
+    noteMap.set(rn.id, { ...(noteMap.get(rn.id) || {}), ...rn });
+  });
+  appState.notes = Array.from(noteMap.values())
+    .filter(n => !delMap[n.id])
+    .sort((a, b) => (a.ts || 0) - (b.ts || 0));
+
+  // 3. Voices merge
+  const voiceMap = new Map();
+  (appState.voices || []).forEach((v, idx) => {
+    const vid = (v && v.id) || ('v_legacy_' + idx);
+    if (v && !delMap[vid]) voiceMap.set(vid, { ...v, id: vid });
+  });
+  toArrayOrValues(remote.voices).forEach(rv => {
+    if (!rv || !rv.id || delMap[rv.id]) return;
+    if (!voiceMap.has(rv.id)) changed = true;
+    voiceMap.set(rv.id, { ...(voiceMap.get(rv.id) || {}), ...rv });
+  });
+  appState.voices = Array.from(voiceMap.values())
+    .filter(v => !delMap[v.id])
+    .sort((a, b) => (a.ts || 0) - (b.ts || 0));
+
+  // 4. Meta / settings merge
+  const rMeta = remote.meta || {};
+  if ((rMeta.rev || 0) > (appState.metaUpdatedAt || 0)) {
+    if (rMeta.sinceDate) appState.sinceDate = rMeta.sinceDate;
+    if (rMeta.quotaMb) appState.quotaMb = Number(rMeta.quotaMb);
+    if (rMeta.alertEmail) appState.alertEmail = rMeta.alertEmail;
+    if (rMeta.walleEmail !== undefined) appState.walleEmail = rMeta.walleEmail;
+    if (rMeta.alertWebhook !== undefined) appState.alertWebhook = rMeta.alertWebhook;
+    appState.metaUpdatedAt = rMeta.rev;
+    changed = true;
+  }
+
+  return changed;
+}
+
+function serializeCloudPayload(rev) {
+  const pins = {};
+  (appState.pins || []).forEach(p => {
+    if (!p || !p.id) return;
+    pins[p.id] = {
+      ...p,
+      videos: (p.videos || []).map(v => ({
+        id: v.id || '',
+        name: v.name || 'video.mp4',
+        mime: v.mime || 'video/mp4',
+        size: v.size || 0,
+        dataUrl: v.dataUrl || ''
+      }))
+    };
+  });
+  const notes = {};
+  (appState.notes || []).forEach(n => { if (n && n.id) notes[n.id] = n; });
+  const voices = {};
+  (appState.voices || []).forEach(v => { if (v && v.id) voices[v.id] = v; });
+
+  return {
+    meta: {
+      rev,
+      sinceDate: appState.sinceDate,
+      quotaMb: appState.quotaMb,
+      alertEmail: appState.alertEmail,
+      walleEmail: appState.walleEmail || '',
+      alertWebhook: appState.alertWebhook || ''
+    },
+    pins,
+    notes,
+    voices,
+    deleted: appState.deletedIds || {}
+  };
+}
+
+function refreshAllViewsAfterCloudSync() {
+  renderMapMarkers();
+  renderPinPillsAndDetail();
+  renderSentNotes();
+  renderNotes();
+  renderVoices();
+  updateStorageMeter();
+  updateRelationshipTimer();
+  const sEl = document.getElementById('cfgSince');
+  if (sEl && document.activeElement !== sEl) sEl.value = appState.sinceDate;
+  const qEl = document.getElementById('cfgQuotaMb');
+  if (qEl && document.activeElement !== qEl) qEl.value = String(appState.quotaMb || 5);
+  const aEl = document.getElementById('cfgAlertEmail');
+  if (aEl && document.activeElement !== aEl) aEl.value = appState.alertEmail || 'sudesenturk6507@gmail.com';
+  const wEl = document.getElementById('cfgWalleEmail');
+  if (wEl && document.activeElement !== wEl) wEl.value = appState.walleEmail || '';
+}
+
+function isValidCloudUrl(u) {
+  return !!u && (u.startsWith('https://') || u.startsWith('http://127.0.0.1') || u.startsWith('http://localhost'));
+}
+
+async function pullCloudState(forceFull = false) {
+  const dbBase = normalizeCloudBase(appState.cloudDbUrl);
+  if (!isValidCloudUrl(dbBase)) return { ok: false, reason: 'nourl' };
+  lastCloudCheckAt = Date.now();
+  try {
+    if (!forceFull && cloudInitialSynced) {
+      const mr = await fetch(`${dbBase}/walle_universe/meta.json`);
+      if (mr.status === 401 || mr.status === 403) {
+        setCloudStatus('FIREBASE IZNI KAPALI (Rules kontrol et)', false);
+        return { ok: false, reason: 'auth' };
+      }
+      if (mr.ok) {
+        const meta = await mr.json();
+        if (meta && meta.rev && meta.rev === lastSyncedCloudRev) {
+          return { ok: true, unchanged: true };
+        }
+      }
+    }
+
+    const r = await fetch(`${dbBase}/walle_universe.json`);
+    if (r.status === 401 || r.status === 403) {
+      setCloudStatus('FIREBASE IZNI KAPALI (.read/.write Rules kontrol et)', false);
+      return { ok: false, reason: 'auth' };
+    }
+    if (!r.ok) {
+      setCloudStatus(`BULUT HATASI (HTTP ${r.status})`, false);
+      return { ok: false, reason: 'http_' + r.status };
+    }
+    const remote = await r.json();
+    cloudInitialSynced = true;
+    if (remote && remote.meta && remote.meta.rev) {
+      lastSyncedCloudRev = remote.meta.rev;
+    }
+    if (remote && mergeCloudSnapshot(remote)) {
+      persistRawState();
+      refreshAllViewsAfterCloudSync();
+    }
+    const d = new Date();
+    const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+    setCloudStatus(`FIREBASE BAGLI // SON ESITLEME: ${hm}`, true);
+    return { ok: true };
+  } catch (e) {
+    setCloudStatus('FIREBASE BAGLANTI HATASI (URL / internet kontrol et)', false);
+    return { ok: false, reason: 'network' };
+  }
 }
 
 async function syncCloudOptional() {
-  if (!appState.cloudDbUrl || !appState.cloudDbUrl.startsWith('https://')) return;
+  const dbBase = normalizeCloudBase(appState.cloudDbUrl);
+  if (!isValidCloudUrl(dbBase)) return { ok: false, reason: 'nourl' };
+  if (cloudSyncInFlight) {
+    cloudPushQueued = true;
+    return { ok: false, reason: 'queued' };
+  }
+  cloudSyncInFlight = true;
   try {
-    const dbBase = appState.cloudDbUrl.replace(/\/$/, '');
-    await fetch(`${dbBase}/walle_universe.json`, {
+    const pullRes = await pullCloudState(!cloudInitialSynced);
+    if (!pullRes.ok) return pullRes;
+    const rev = Date.now();
+    const payload = serializeCloudPayload(rev);
+    const r = await fetch(`${dbBase}/walle_universe.json`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sinceDate: appState.sinceDate,
-        pins: appState.pins,
-        notes: appState.notes,
-        updatedAt: Date.now()
-      })
+      body: JSON.stringify(payload)
     });
-  } catch (e) {}
+    if (r.status === 401 || r.status === 403) {
+      setCloudStatus('FIREBASE YAZMA IZNI KAPALI (Rules kontrol et)', false);
+      return { ok: false, reason: 'auth' };
+    }
+    if (!r.ok) {
+      setCloudStatus(`FIREBASE YAZMA HATASI (HTTP ${r.status})`, false);
+      return { ok: false, reason: 'http_' + r.status };
+    }
+    lastSyncedCloudRev = rev;
+    cloudInitialSynced = true;
+    lastCloudCheckAt = Date.now();
+    const d = new Date();
+    const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+    setCloudStatus(`FIREBASE SENKRONIZE // ${hm}`, true);
+    return { ok: true };
+  } catch (e) {
+    setCloudStatus('FIREBASE YAZMA HATASI (URL / internet kontrol et)', false);
+    return { ok: false, reason: 'network' };
+  } finally {
+    cloudSyncInFlight = false;
+    if (cloudPushQueued) {
+      cloudPushQueued = false;
+      syncCloudOptional();
+    }
+  }
+}
+
+async function syncCloudNow() {
+  const dbBase = normalizeCloudBase(document.getElementById('cfgCloudUrl')?.value || appState.cloudDbUrl);
+  if (!isValidCloudUrl(dbBase)) {
+    showToast('ONCE GECERLI BIR https://... FIREBASE URL GIRIN');
+    return;
+  }
+  appState.cloudDbUrl = dbBase;
+  if (document.getElementById('cfgCloudUrl')) document.getElementById('cfgCloudUrl').value = dbBase;
+  setCloudStatus('FIREBASE BAGLANIYOR...', null);
+  const pull = await pullCloudState(true);
+  if (!pull.ok) {
+    showToast('FIREBASE BAGLANAMADI - DURUM KUTUSUNA BAK');
+    return;
+  }
+  const push = await syncCloudOptional();
+  if (push.ok) {
+    persistRawState();
+    showToast('FIREBASE CANLI ESITLEME BASARILI!');
+  } else {
+    showToast('FIREBASE YAZMA HATASI - KURALLARI KONTROL ET');
+  }
 }
 
 function exportJsonBackup() {
@@ -2540,6 +2873,18 @@ document.addEventListener('DOMContentLoaded', () => {
   setRobotLinkStatus(false, '', navigator.bluetooth ? 'mixed' : 'nobt');
   syncRobotStatus(false);
 
+  // Firebase Bulut Senkronizasyonu (Varsa yukle & 7 sn'de bir canli kontrol et)
+  if (isValidCloudUrl(normalizeCloudBase(appState.cloudDbUrl))) {
+    pullCloudState(true);
+  } else {
+    setCloudStatus('BULUT DURUMU: PASIF (Firebase URL girip kaydet)', null);
+  }
+  setInterval(() => {
+    if (isValidCloudUrl(normalizeCloudBase(appState.cloudDbUrl)) && !cloudSyncInFlight) {
+      pullCloudState(false);
+    }
+  }, 7000);
+
   // IndexedDB'deki buyuk/tam fotograf, video ve ses arsivini yukle ve ekrani tazele
   idbLoadState().then((idbData) => {
     if (!idbData || !Array.isArray(idbData.pins)) return;
@@ -2548,15 +2893,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const idbVoiceSize = (idbData.voices || []).reduce((n, v) => n + ((v.dataUrl && v.dataUrl.length) || 0), 0);
     const lsVoiceSize = (appState.voices || []).reduce((n, v) => n + ((v.dataUrl && v.dataUrl.length) || 0), 0);
     if (idbMedia > lsMedia || idbVoiceSize > lsVoiceSize || idbData.pins.length >= (appState.pins || []).length) {
+      const defCloud = DEFAULT_DATA.cloudDbUrl;
       appState = { ...structuredClone(DEFAULT_DATA), ...idbData };
+      if (!appState.cloudDbUrl && defCloud) appState.cloudDbUrl = defCloud;
       appState.songs = migrateSongsIfLegacy(appState.songs);
-      renderMapMarkers();
-      renderPinPillsAndDetail();
-      renderSentNotes();
-      renderNotes();
-      renderVoices();
-      renderSongList(activePlayingSongIdx);
-      updateStorageMeter();
+      refreshAllViewsAfterCloudSync();
+      if (isValidCloudUrl(normalizeCloudBase(appState.cloudDbUrl))) {
+        pullCloudState(true);
+      }
     }
   });
 });

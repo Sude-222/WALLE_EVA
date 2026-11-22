@@ -437,9 +437,13 @@
 
             <label class="px-lbl">BULUT VERITABANI URL (.firebaseio.com)</label>
             <input type="text" class="px-in" id="cfgCloudUrl" placeholder="https://proje-default-rtdb.firebaseio.com" />
+            <div class="storage-info-card" id="cloudStatusBox" style="margin-top:6px;">
+              BULUT DURUMU: PASIF (Firebase URL girip kaydet)
+            </div>
 
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
               <button class="px-btn green" style="flex:1;" onclick="saveBridgeSettings()">AYARLARI KAYDET</button>
+              <button class="px-btn cyan" style="flex:1;" onclick="syncCloudNow()">BULUTTAN ESITLE</button>
               <button class="px-btn gold" style="flex:1;" onclick="openDirectLanRemote()">YEREL KUMANDA AC</button>
             </div>
 
