@@ -85,6 +85,8 @@
       </div>
     </header>
 
+    <div class="global-storage-alert" id="globalStorageAlert"></div>
+
     <!-- ANA CALISMA ALANI -->
     <main class="workspace">
 
@@ -153,7 +155,16 @@
                   <span class="px-ico sm" data-ico="camera"></span> + FOTO / VIDEO EKLE
                   <input type="file" accept="image/*,video/*" multiple style="display:none;" onchange="handlePhotoUpload(this.files, true); this.value='';" />
                 </label>
+                <button class="px-btn gold sm" onclick="addAnotherJourneyToCurrentCity()">+ AYNI SEHRE YOLCULUK EKLE</button>
                 <button class="px-btn danger sm" onclick="deleteSelectedPin()">SIL</button>
+              </div>
+
+              <div class="rating-summary-box" id="memRatingSummary">
+                <div class="rating-summary-top">
+                  <span>YOLCULUK PUANI (ORTALAMA)</span>
+                  <span class="rating-avg-badge" id="memAvgBadge">-- / 10</span>
+                </div>
+                <div class="rating-summary-sub" id="memAvgSub">WALL-E: -- / 10  |  EVA: -- / 10</div>
               </div>
 
               <div class="thoughts-grid">
@@ -161,6 +172,11 @@
                   <div class="thought-hdr">
                     <span><span class="px-ico sm" data-ico="walle"></span> WALL-E'NIN YOLCULUK DUSUNCELERI</span>
                     <span class="thought-lock" id="walleThoughtLock">BARAN</span>
+                  </div>
+                  <div class="thought-score-row">
+                    <span>PUAN (1-10):</span>
+                    <select class="px-in score-sel" id="memWalleScoreInput" onchange="onThoughtScoreChange('walle', this.value)"></select>
+                    <span class="thought-score-read" id="memWalleScoreRead" style="display:none;">-- / 10</span>
                   </div>
                   <textarea class="px-in" id="memWalleInput" placeholder="Baran'in yolculuk dusuncesi..."></textarea>
                   <div class="thought-readonly" id="memWalleRead" style="display:none;"></div>
@@ -171,6 +187,11 @@
                   <div class="thought-hdr">
                     <span><span class="px-ico sm" data-ico="eva"></span> EVA'NIN YOLCULUK DUSUNCELERI</span>
                     <span class="thought-lock" id="evaThoughtLock">SUDE</span>
+                  </div>
+                  <div class="thought-score-row">
+                    <span>PUAN (1-10):</span>
+                    <select class="px-in score-sel" id="memEvaScoreInput" onchange="onThoughtScoreChange('eva', this.value)"></select>
+                    <span class="thought-score-read" id="memEvaScoreRead" style="display:none;">-- / 10</span>
                   </div>
                   <textarea class="px-in" id="memEvaInput" placeholder="Sude'nin yolculuk dusuncesi..."></textarea>
                   <div class="thought-readonly" id="memEvaRead" style="display:none;"></div>
@@ -360,18 +381,32 @@
             <div class="px-meter" id="storageBar"></div>
 
             <div class="storage-alert-box" id="storageAlertBanner">
-              UYARI: Depolama %80 sinirini gecti! Bildirim adresi: <b>sudesenturk6507@gmail.com</b>
+              UYARI: Depolama %80 sinirini gecti! EVA ve WALL-E'ye bildirim gonderildi.
             </div>
 
-            <label class="px-lbl">KOTA LIMITI (YEREL VEYA UCRETSIZ BULUT)</label>
+            <div class="storage-info-card" id="storageDeviceInfo">
+              <div>SUNUCU: GitHub Pages (Statik Web)</div>
+              <div>DEPOLAMA: Tarayici IndexedDB + LocalStorage + Opsiyonel Firebase</div>
+              <div id="storageDeviceCap">CIHAZ KOTASI: HESAPLANIYOR...</div>
+            </div>
+
+            <label class="px-lbl">KOTA LIMITI (UYARI ESIGI ICIN)</label>
             <select class="px-in" id="cfgQuotaMb">
               <option value="5">Tarayici LocalStorage (5 MB)</option>
-              <option value="500">Supabase Ucretsiz Plan (500 MB)</option>
-              <option value="1024">Firebase Spark Ucretsiz Plan (1024 MB)</option>
+              <option value="500">IndexedDB / Supabase Ucretsiz Plan (500 MB)</option>
+              <option value="1024">IndexedDB / Firebase Spark Plan (1024 MB)</option>
             </select>
 
-            <label class="px-lbl">BILDIRIM E-POSTASI (DEPOLAMA %80 DOLUNCA)</label>
-            <input type="email" class="px-in" id="cfgAlertEmail" value="sudesenturk6507@gmail.com" />
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div>
+                <label class="px-lbl">EVA E-POSTA (UYARI %80)</label>
+                <input type="email" class="px-in" id="cfgAlertEmail" value="sudesenturk6507@gmail.com" />
+              </div>
+              <div>
+                <label class="px-lbl">WALL-E E-POSTA (UYARI %80)</label>
+                <input type="email" class="px-in" id="cfgWalleEmail" placeholder="baran@ornek.com" />
+              </div>
+            </div>
 
             <label class="px-lbl">OTOMATIK E-POSTA WEBHOOK (FORMSPREE / EMAILJS URL - OPSIYONEL)</label>
             <input type="text" class="px-in" id="cfgAlertWebhook" placeholder="https://formspree.io/f/xxxxxx" />
@@ -455,8 +490,11 @@
         <option value="dream">HAYAL / HEDEF [MAVI EVA PIN]</option>
       </select>
 
+      <label class="px-lbl">YOLCULUK ADI (AYNI SEHRE FARKLI YOLCULUKLAR ICIN)</label>
+      <input type="text" class="px-in" id="pinJourneyInput" placeholder="ORN: ILK BULUSMA / KIS GEZISI" />
+
       <label class="px-lbl">SEHIR / MEKAN</label>
-      <input type="text" class="px-in" id="pinCityInput" placeholder="ORN: IZMIR" />
+      <input type="text" class="px-in" id="pinCityInput" placeholder="ORN: ESKISEHIR" />
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         <div>
@@ -479,6 +517,21 @@
           <input type="number" step="0.0001" class="px-in" id="pinLngInput" value="27.1428" />
         </div>
       </div>
+
+      <label class="px-lbl" id="addPinScoreLabel">BU YOLCULUGA PUANIN (10 UZERINDEN)</label>
+      <select class="px-in" id="pinScoreInput">
+        <option value="">PUAN VER (OPSIYONEL)</option>
+        <option value="10">10 / 10 - MUKEMMEL</option>
+        <option value="9">9 / 10</option>
+        <option value="8">8 / 10</option>
+        <option value="7">7 / 10</option>
+        <option value="6">6 / 10</option>
+        <option value="5">5 / 10</option>
+        <option value="4">4 / 10</option>
+        <option value="3">3 / 10</option>
+        <option value="2">2 / 10</option>
+        <option value="1">1 / 10</option>
+      </select>
 
       <label class="px-lbl" id="addPinThoughtLabel">YOLCULUK DUSUNCEN</label>
       <textarea class="px-in" id="pinNoteInput" placeholder="Bu sehir hakkindaki dusuncelerin..."></textarea>

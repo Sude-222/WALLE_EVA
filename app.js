@@ -192,6 +192,7 @@ const DEFAULT_DATA = {
   cloudDbUrl: '',
   quotaMb: 5,
   alertEmail: 'sudesenturk6507@gmail.com',
+  walleEmail: '',
   alertWebhook: '',
   lastAlertSentPct: 0,
   selectedPinId: '',
@@ -327,7 +328,7 @@ function loadState() {
   }
 }
 
-function saveState() {
+function persistRawState() {
   idbSaveState(appState);
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
@@ -341,6 +342,10 @@ function saveState() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
     } catch (e2) {}
   }
+}
+
+function saveState() {
+  persistRawState();
   updateStorageMeter();
   syncCloudOptional();
 }
@@ -393,7 +398,10 @@ function applyAccountUI(role) {
   if (hero) hero.textContent = role === 'eva' ? 'EVA // SUDE EVRENI' : 'WALL-E // BARAN EVRENI';
   const pinLbl = document.getElementById('addPinThoughtLabel');
   if (pinLbl) pinLbl.textContent = role === 'eva' ? "EVA'NIN YOLCULUK DUSUNCESI" : "WALL-E'NIN YOLCULUK DUSUNCESI";
+  const pinScoreLbl = document.getElementById('addPinScoreLabel');
+  if (pinScoreLbl) pinScoreLbl.textContent = role === 'eva' ? "EVA'NIN BU YOLCULUGA PUANI (10 UZERINDEN)" : "WALL-E'NIN BU YOLCULUGA PUANI (10 UZERINDEN)";
   updateRelationshipTimer();
+  updateStorageMeter();
 
   // Hesaba gore Notlar sekmesi: Sol = Partner Ekranina Gonderim & Gecmis, Sag = Gelen & Alinan Notlar
   const sendPanel = document.getElementById('notesSendPanel');
@@ -478,45 +486,97 @@ function updateStorageMeter() {
     }
   }
 
+  if (navigator.storage && navigator.storage.estimate) {
+    navigator.storage.estimate().then(est => {
+      const capEl = document.getElementById('storageDeviceCap');
+      if (!capEl || !est) return;
+      const usedMb = ((est.usage || 0) / (1024 * 1024)).toFixed(2);
+      const quotaMb = ((est.quota || 0) / (1024 * 1024)).toFixed(0);
+      capEl.textContent = `CIHAZ INDEXEDDB ALANI: ${usedMb} MB KULLANILDI / ${quotaMb} MB TOPLAM KOTA`;
+    }).catch(() => {});
+  }
+
+  const evaEmail = (appState.alertEmail || 'sudesenturk6507@gmail.com').trim();
+  const walleEmail = (appState.walleEmail || '').trim();
+  const globalBanner = document.getElementById('globalStorageAlert');
   const banner = document.getElementById('storageAlertBanner');
+
   if (st.pct >= 80) {
-    banner.classList.add('show');
-    banner.innerHTML = `UYARI: Depolama <b>%${st.pct}</b> doldu! Hedef adres: <b>${escapeHtml(appState.alertEmail || 'sudesenturk6507@gmail.com')}</b>`;
-    if (appState.lastAlertSentPct < 80) {
+    const warnMsg = `UYARI: DEPOLAMA %${st.pct} DOLDU (${label})! Yer dolmaya yakin — EVA ve WALL-E'ye uyari mesaji gonderildi.`;
+    if (globalBanner) {
+      globalBanner.classList.add('show');
+      globalBanner.textContent = warnMsg;
+    }
+    if (banner) {
+      banner.classList.add('show');
+      const recips = [evaEmail, walleEmail].filter(Boolean).join(', ');
+      banner.innerHTML = `UYARI: Depolama <b>%${st.pct}</b> doldu! Bildirim: <b>${escapeHtml(recips || 'EVA & WALL-E')}</b>`;
+    }
+    if ((appState.lastAlertSentPct || 0) < 80) {
       appState.lastAlertSentPct = st.pct;
+      const d = new Date();
+      const dateStr = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+      const timeStr = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      appState.notes.push({
+        id: 'n_alert_' + Date.now(),
+        author: 'SISTEM',
+        target: 'EVA & WALL-E',
+        date: dateStr,
+        time: timeStr,
+        ts: Date.now(),
+        text: `DEPOLAMA UYARISI (%${st.pct} DOLU - ${label}): Yer dolmak uzere! Eski video/fotolari yedekleyip yer acin veya bulut kotasini artirin.`
+      });
+      persistRawState();
+      renderNotes();
       sendStorageEmailAlert(false);
     }
   } else {
-    banner.classList.remove('show');
+    if (globalBanner) globalBanner.classList.remove('show');
+    if (banner) banner.classList.remove('show');
+    if ((appState.lastAlertSentPct || 0) >= 80) {
+      appState.lastAlertSentPct = 0;
+      persistRawState();
+    }
   }
 }
 
 async function sendStorageEmailAlert(manualClick) {
   const st = getStorageUsage();
-  const email = (appState.alertEmail || 'sudesenturk6507@gmail.com').trim();
+  const evaEmail = (appState.alertEmail || 'sudesenturk6507@gmail.com').trim();
+  const walleEmail = (appState.walleEmail || '').trim();
+  const recipients = [evaEmail, walleEmail].filter(Boolean);
+  const recStr = recipients.join(',');
   const webhook = (appState.alertWebhook || '').trim();
   const subj = `WALL-E & EVA Depolama Uyarisi: %${st.pct} Dolu`;
-  const msg = `Merhaba, WALL-E & EVA anilar ve fotograf web sitesinde depolama alani %${st.pct} seviyesine ulasti (${st.kb} KB / ${st.maxMb} MB).`;
+  const msg = `Merhaba EVA & WALL-E, anilar ve fotograf sitesinde depolama alani %${st.pct} seviyesine ulasti (${st.kb} KB / ${st.maxMb} MB).`;
 
   if (webhook.startsWith('https://')) {
     try {
       const res = await fetch(webhook, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ to: email, email, subject: subj, message: msg, percent: st.pct })
+        body: JSON.stringify({
+          to: recStr,
+          recipients,
+          evaEmail,
+          walleEmail,
+          subject: subj,
+          message: msg,
+          percent: st.pct
+        })
       });
       if (res.ok) {
-        showToast(`${email} ADRESINE DEPOLAMA BILDIRIMI GONDERILDI (%${st.pct})`);
+        showToast(`EVA & WALL-E ADRESINE DEPOLAMA BILDIRIMI GONDERILDI (%${st.pct})`);
         return;
       }
     } catch (e) {}
   }
 
-  if (manualClick) {
-    window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(msg)}`;
-    showToast(`E-POSTA TASLAGI HAZIRLANDI -> ${email}`);
+  if (manualClick && recStr) {
+    window.location.href = `mailto:${encodeURIComponent(recStr)}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(msg)}`;
+    showToast(`EVA & WALL-E E-POSTA TASLAGI HAZIRLANDI -> ${recStr}`);
   } else {
-    showToast(`DEPOLAMA %${st.pct} DOLDU - ${email} UYARISI HAZIR`);
+    showToast(`DEPOLAMA %${st.pct} DOLDU - EVA & WALL-E'YE MESAJ GONDERILDI`);
   }
 }
 
@@ -661,16 +721,82 @@ function createPixelMarkerIcon(type) {
   });
 }
 
+function parseJourneyScore(val) {
+  if (val === '' || val === null || val === undefined) return null;
+  const n = Number(val);
+  if (!isFinite(n) || n < 1 || n > 10) return null;
+  return Math.round(n * 10) / 10;
+}
+
+function getJourneyRating(pin) {
+  const walle = parseJourneyScore(pin && pin.walleScore);
+  const eva   = parseJourneyScore(pin && pin.evaScore);
+  let avg = null;
+  let count = 0;
+  if (walle !== null && eva !== null) {
+    avg = (walle + eva) / 2;
+    count = 2;
+  } else if (walle !== null) {
+    avg = walle;
+    count = 1;
+  } else if (eva !== null) {
+    avg = eva;
+    count = 1;
+  }
+  const avgText = avg !== null ? (avg % 1 === 0 ? `${avg}.0` : avg.toFixed(1)) : '--';
+  return { walle, eva, avg, avgText, count };
+}
+
+function getPinJourneyTitle(pin) {
+  if (!pin) return '';
+  return pin.title ? pin.title : pin.city;
+}
+
+function populateScoreSelect(selEl, selectedVal) {
+  if (!selEl) return;
+  if (!selEl.options.length) {
+    const emptyOpt = document.createElement('option');
+    emptyOpt.value = '';
+    emptyOpt.textContent = 'PUAN VER (1-10)';
+    selEl.appendChild(emptyOpt);
+    for (let s = 10; s >= 1; s--) {
+      const o = document.createElement('option');
+      o.value = String(s);
+      o.textContent = `${s} / 10`;
+      selEl.appendChild(o);
+    }
+  }
+  const parsed = parseJourneyScore(selectedVal);
+  selEl.value = parsed !== null ? String(parsed) : '';
+}
+
 function buildPinPopupHtml(pin) {
   const pCount = (pin.photos && pin.photos.length) ? pin.photos.length : 0;
   const vCount = (pin.videos && pin.videos.length) ? pin.videos.length : 0;
+  const rating = getJourneyRating(pin);
+  const scoreTxt = rating.count ? ` // PUAN: ${rating.avgText}/10` : '';
+  const titleTxt = pin.title ? `${escapeHtml(pin.title)} (${escapeHtml(pin.city)})` : `${escapeHtml(pin.city)} (${escapeHtml(pin.country)})`;
   return `
-    <div style="min-width:190px;font-family:'Press Start 2P',monospace;">
-      <div style="color:#f6bf42;font-size:10px;line-height:1.5;">${escapeHtml(pin.city)} (${escapeHtml(pin.country)})</div>
-      <div style="color:#67d4ff;font-size:8px;line-height:1.6;margin:4px 0 8px;">${escapeHtml(pin.date)} // ${pCount} FOTO, ${vCount} VIDEO</div>
-      <button class="px-btn gold sm" style="width:100%;" onclick="focusPinAndUpload('${pin.id}')">ANI KARTINI AC</button>
+    <div style="min-width:205px;font-family:'Press Start 2P',monospace;">
+      <div style="color:#f6bf42;font-size:9.5px;line-height:1.5;">${titleTxt}</div>
+      <div style="color:#67d4ff;font-size:8px;line-height:1.6;margin:4px 0 8px;">${escapeHtml(pin.date)} // ${pCount} FOTO, ${vCount} VIDEO${scoreTxt}</div>
+      <button class="px-btn gold sm" style="width:100%;margin-bottom:6px;" onclick="focusPinAndUpload('${pin.id}')">ANI KARTINI AC</button>
+      <button class="px-btn cyan sm" style="width:100%;" onclick="addAnotherJourneyForPin('${pin.id}')">+ BU SEHRE YENI YOLCULUK</button>
     </div>
   `;
+}
+
+function addAnotherJourneyForPin(id) {
+  const pin = (appState.pins || []).find(p => p.id === id);
+  if (!pin) { openAddPinModal(); return; }
+  if (mapObj) mapObj.closePopup();
+  openAddPinModal(pin.lat, pin.lng, pin.city, pin.country);
+}
+
+function addAnotherJourneyToCurrentCity() {
+  const pin = (appState.pins || []).find(p => p.id === appState.selectedPinId);
+  if (!pin) { openAddPinModal(); return; }
+  openAddPinModal(pin.lat, pin.lng, pin.city, pin.country);
 }
 
 function focusPinAndUpload(id) {
@@ -704,13 +830,6 @@ function initMap() {
 
 async function handleMapSurfaceClick(latlng) {
   const { lat, lng } = latlng;
-  // Yakinda kayitli pin var mi kontrol et (yaklasik ~25km)
-  const existing = appState.pins.find(p => Math.hypot(p.lat - lat, p.lng - lng) < 0.28);
-  if (existing) {
-    selectPin(existing.id);
-    return;
-  }
-
   let cityLabel = 'SECILEN KONUM';
   let countryLabel = 'DUNYA';
   try {
@@ -734,13 +853,24 @@ function showTempCityPopup(lat, lng, cityName, countryName) {
   if (tempSearchMarker) mapObj.removeLayer(tempSearchMarker);
   tempSearchMarker = L.marker([lat, lng], { icon: createPixelMarkerIcon('dream') }).addTo(mapObj);
 
+  const cityUp = String(cityName || '').toUpperCase();
+  const existingSame = (appState.pins || []).filter(p =>
+    p.city.toUpperCase() === cityUp || Math.hypot(p.lat - lat, p.lng - lng) < 0.25
+  );
   const safeCity = escapeHtml(cityName);
   const safeCountry = escapeHtml(countryName);
+  const hint = existingSame.length
+    ? `Bu sehirde <b>${existingSame.length}</b> yolculuk var. Ayni sehre yeni isimli yolculuk ekleyebilirsin!`
+    : `Bu sehirde henuz kayitli yolculuk yok. Hemen ekleyebilirsiniz.`;
+  const openExistingBtn = existingSame.length
+    ? `<button class="px-btn gold sm" style="width:100%;margin-top:6px;" onclick="focusPinAndUpload('${existingSame[existingSame.length - 1].id}')">MEVCUT SON YOLCULUGU AC</button>`
+    : '';
   tempSearchMarker.bindPopup(`
-    <div style="min-width:195px;font-family:'Press Start 2P',monospace;">
+    <div style="min-width:205px;font-family:'Press Start 2P',monospace;">
       <div style="color:#67d4ff;font-size:10px;line-height:1.5;">${safeCity} (${safeCountry})</div>
-      <div style="font-size:8.5px;line-height:1.6;margin:6px 0 8px;">Bu sehirde henuz kayitli ani yok. Hemen ekleyebilirsiniz.</div>
-      <button class="px-btn green sm" style="width:100%;" onclick="openPrefilledPinModal(${lat}, ${lng}, '${encodeURIComponent(cityName)}', '${encodeURIComponent(countryName)}')">BURAYA ANI EKLE</button>
+      <div style="font-size:8px;line-height:1.65;margin:6px 0 8px;">${hint}</div>
+      <button class="px-btn green sm" style="width:100%;" onclick="openPrefilledPinModal(${lat}, ${lng}, '${encodeURIComponent(cityName)}', '${encodeURIComponent(countryName)}')">YENI YOLCULUK EKLE</button>
+      ${openExistingBtn}
     </div>
   `).openPopup();
 }
@@ -757,13 +887,18 @@ async function searchCity() {
   resBox.innerHTML = '<div class="search-item">ARANIYOR...</div>';
   resBox.classList.add('open');
 
-  // Once kayitli pinler icinde ara
+  // Once kayitli yolculuklar icinde ara
   const qLow = q.toLowerCase();
-  const localMatches = appState.pins.filter(p => p.city.toLowerCase().includes(qLow) || p.country.toLowerCase().includes(qLow));
+  const localMatches = appState.pins.filter(p =>
+    p.city.toLowerCase().includes(qLow) ||
+    p.country.toLowerCase().includes(qLow) ||
+    (p.title && p.title.toLowerCase().includes(qLow))
+  );
   let itemsHtml = '';
 
   localMatches.forEach(p => {
-    itemsHtml += `<button class="search-item" onclick="jumpToExistingPin('${p.id}')">[KAYITLI ANI] ${escapeHtml(p.city)} - ${escapeHtml(p.country)}</button>`;
+    const label = p.title ? `${p.city} · ${p.title}` : p.city;
+    itemsHtml += `<button class="search-item" onclick="jumpToExistingPin('${p.id}')">[KAYITLI YOLCULUK] ${escapeHtml(label)} - ${escapeHtml(p.country)}</button>`;
   });
 
   try {
@@ -784,7 +919,7 @@ async function searchCity() {
 
 function jumpToExistingPin(id) {
   document.getElementById('citySearchResults').classList.remove('open');
-  selectPin(id);
+  openMemoryCard(id);
   const pin = appState.pins.find(p => p.id === id);
   if (pin && mapObj) mapObj.flyTo([pin.lat, pin.lng], 11, { duration: 0.9 });
 }
@@ -793,16 +928,6 @@ function jumpToSearchResult(lat, lng, encCity, encCountry) {
   document.getElementById('citySearchResults').classList.remove('open');
   const city = decodeURIComponent(encCity);
   const country = decodeURIComponent(encCountry);
-
-  // Bu sehirde zaten pin var mi?
-  const existing = appState.pins.find(p =>
-    p.city.toLowerCase() === city.toLowerCase() || Math.hypot(p.lat - lat, p.lng - lng) < 0.25
-  );
-  if (existing) {
-    jumpToExistingPin(existing.id);
-    showToast(`${existing.city} ANILARI ACILDI`);
-    return;
-  }
 
   if (mapObj) mapObj.flyTo([lat, lng], 11, { duration: 0.9 });
   showTempCityPopup(lat, lng, city, country);
@@ -816,10 +941,21 @@ function renderMapMarkers() {
   leafletMarkers.forEach(m => mapObj.removeLayer(m));
   leafletMarkers = [];
 
+  const placedCoords = [];
   appState.pins.forEach(pin => {
-    const m = L.marker([pin.lat, pin.lng], { icon: createPixelMarkerIcon(pin.type) }).addTo(mapObj);
+    const nearbyIdx = placedCoords.filter(c => Math.hypot(c.lat - pin.lat, c.lng - pin.lng) < 0.004).length;
+    placedCoords.push({ lat: pin.lat, lng: pin.lng });
+    let renderLat = pin.lat;
+    let renderLng = pin.lng;
+    if (nearbyIdx > 0) {
+      const angle = nearbyIdx * 2.1;
+      const dist = 0.008 * Math.ceil(nearbyIdx / 2);
+      renderLat += Math.sin(angle) * dist;
+      renderLng += Math.cos(angle) * dist;
+    }
+    const m = L.marker([renderLat, renderLng], { icon: createPixelMarkerIcon(pin.type) }).addTo(mapObj);
     m.bindPopup(buildPinPopupHtml(pin));
-    m.on('click', () => selectPin(pin.id));
+    m.on('click', () => openMemoryCard(pin.id));
     leafletMarkers.push(m);
   });
 }
@@ -881,8 +1017,10 @@ function renderPinPillsAndDetail() {
 
   appState.pins.forEach(pin => {
     const b = document.createElement('button');
+    const rating = getJourneyRating(pin);
+    const labelBase = pin.title ? `${pin.city} · ${pin.title}` : pin.city;
     b.className = `pin-pill ${pin.type === 'visited' ? 'walle' : 'eva'} ${(activeMemoryOpen && pin.id === appState.selectedPinId) ? 'active' : ''}`;
-    b.textContent = pin.city;
+    b.textContent = rating.count ? `${labelBase} [★ ${rating.avgText}]` : labelBase;
     b.onclick = () => {
       if (mapObj) mapObj.flyTo([pin.lat, pin.lng], 10, { duration: 0.7 });
       openMemoryCard(pin.id);
@@ -914,7 +1052,7 @@ function renderMemoryModalContent(pin) {
   const cityEl = document.getElementById('memCity');
   const countryEl = document.getElementById('memCountry');
   const badgeEl = document.getElementById('memBadge');
-  if (cityEl) cityEl.textContent = pin.city;
+  if (cityEl) cityEl.textContent = pin.title ? `${pin.title} (${pin.city})` : pin.city;
   if (countryEl) countryEl.textContent = `${pin.country} // ${pin.date}`;
   if (badgeEl) badgeEl.textContent = pin.type === 'visited' ? 'GIDILDI [WALL-E]' : 'HAYAL [EVA]';
 
@@ -958,7 +1096,17 @@ function renderMemoryModalContent(pin) {
     }
   }
 
-  // Mavi (WALL-E) ve Pembe (EVA) yolculuk dusunceleri — rol kilidi
+  // Mavi (WALL-E) ve Pembe (EVA) yolculuk dusunceleri & 10 uzerinden puanlama — rol kilidi
+  const rating = getJourneyRating(pin);
+  const avgBadge = document.getElementById('memAvgBadge');
+  const avgSub   = document.getElementById('memAvgSub');
+  if (avgBadge) avgBadge.textContent = rating.count ? `★ ${rating.avgText} / 10` : '-- / 10';
+  if (avgSub) {
+    const wTxt = rating.walle !== null ? `${rating.walle}/10` : '--';
+    const eTxt = rating.eva   !== null ? `${rating.eva}/10`   : '--';
+    avgSub.textContent = `WALL-E: ${wTxt}  |  EVA: ${eTxt}  (${rating.count}/2 KISI)`;
+  }
+
   const walleText = (pin.walleNote !== undefined) ? pin.walleNote : (pin.note || '');
   const evaText   = (pin.evaNote !== undefined)   ? pin.evaNote   : '';
 
@@ -966,23 +1114,37 @@ function renderMemoryModalContent(pin) {
   const wRead = document.getElementById('memWalleRead');
   const wBtn  = document.getElementById('memWalleSaveBtn');
   const wLock = document.getElementById('walleThoughtLock');
+  const wScIn = document.getElementById('memWalleScoreInput');
+  const wScRd = document.getElementById('memWalleScoreRead');
 
   const eIn   = document.getElementById('memEvaInput');
   const eRead = document.getElementById('memEvaRead');
   const eBtn  = document.getElementById('memEvaSaveBtn');
   const eLock = document.getElementById('evaThoughtLock');
+  const eScIn = document.getElementById('memEvaScoreInput');
+  const eScRd = document.getElementById('memEvaScoreRead');
+
+  populateScoreSelect(wScIn, pin.walleScore);
+  populateScoreSelect(eScIn, pin.evaScore);
 
   if (wIn && wRead && wBtn) {
     if (activeRole === 'walle') {
       wIn.style.display = 'block'; wIn.value = walleText;
       wBtn.style.display = 'inline-flex';
       wRead.style.display = 'none';
+      if (wScIn) wScIn.style.display = 'inline-block';
+      if (wScRd) wScRd.style.display = 'none';
       if (wLock) wLock.textContent = 'YAZABILIRSIN';
     } else {
       wIn.style.display = 'none';
       wBtn.style.display = 'none';
       wRead.style.display = 'block';
       wRead.textContent = walleText || 'WALL-E henuz bu yolculuk icin dusunce yazmadi.';
+      if (wScIn) wScIn.style.display = 'none';
+      if (wScRd) {
+        wScRd.style.display = 'inline-block';
+        wScRd.textContent = rating.walle !== null ? `${rating.walle} / 10` : 'PUAN YOK';
+      }
       if (wLock) wLock.textContent = 'SADECE WALL-E';
     }
   }
@@ -992,12 +1154,19 @@ function renderMemoryModalContent(pin) {
       eIn.style.display = 'block'; eIn.value = evaText;
       eBtn.style.display = 'inline-flex';
       eRead.style.display = 'none';
+      if (eScIn) eScIn.style.display = 'inline-block';
+      if (eScRd) eScRd.style.display = 'none';
       if (eLock) eLock.textContent = 'YAZABILIRSIN';
     } else {
       eIn.style.display = 'none';
       eBtn.style.display = 'none';
       eRead.style.display = 'block';
       eRead.textContent = evaText || 'EVA henuz bu yolculuk icin dusunce yazmadi.';
+      if (eScIn) eScIn.style.display = 'none';
+      if (eScRd) {
+        eScRd.style.display = 'inline-block';
+        eScRd.textContent = rating.eva !== null ? `${rating.eva} / 10` : 'PUAN YOK';
+      }
       if (eLock) eLock.textContent = 'SADECE EVA';
     }
   }
@@ -1026,6 +1195,23 @@ function selectPin(id) {
   renderPinPillsAndDetail();
 }
 
+function onThoughtScoreChange(role, rawVal) {
+  if (activeRole !== role) {
+    showToast('SADECE KENDI ALANINA PUAN VEREBILIRSIN');
+    return;
+  }
+  const pin = appState.pins.find(p => p.id === appState.selectedPinId);
+  if (!pin) return;
+  const parsed = parseJourneyScore(rawVal);
+  if (role === 'walle') pin.walleScore = parsed;
+  else pin.evaScore = parsed;
+  saveState();
+  renderMapMarkers();
+  renderPinPillsAndDetail();
+  const r = getJourneyRating(pin);
+  showToast(parsed ? `${role === 'walle' ? "WALL-E" : "EVA"} PUANI: ${parsed}/10 (ORTALAMA: ${r.avgText})` : 'PUAN TEMIZLENDI');
+}
+
 function saveJourneyThought(role) {
   if (activeRole !== role) {
     showToast('SADECE KENDI ALANINA YAZABILIRSIN');
@@ -1035,13 +1221,17 @@ function saveJourneyThought(role) {
   if (!pin) return;
   if (role === 'walle') {
     pin.walleNote = document.getElementById('memWalleInput').value.trim();
+    const scEl = document.getElementById('memWalleScoreInput');
+    if (scEl) pin.walleScore = parseJourneyScore(scEl.value);
   } else {
     pin.evaNote = document.getElementById('memEvaInput').value.trim();
+    const scEl = document.getElementById('memEvaScoreInput');
+    if (scEl) pin.evaScore = parseJourneyScore(scEl.value);
   }
   saveState();
   renderMapMarkers();
-  renderMemoryModalContent(pin);
-  showToast(role === 'walle' ? "WALL-E'NIN DUSUNCESI KAYDEDILDI" : "EVA'NIN DUSUNCESI KAYDEDILDI");
+  renderPinPillsAndDetail();
+  showToast(role === 'walle' ? "WALL-E'NIN DUSUNCE & PUANI KAYDEDILDI" : "EVA'NIN DUSUNCE & PUANI KAYDEDILDI");
 }
 
 function renderPendingPhotoThumbs() {
@@ -1078,15 +1268,19 @@ function renderPendingPhotoThumbs() {
   });
 }
 
-function openAddPinModal(lat = 39.92, lng = 32.85, cityPre = '', countryPre = '') {
+function openAddPinModal(lat = 39.92, lng = 32.85, cityPre = '', countryPre = '', journeyPre = '') {
   pendingPhotos = [];
   pendingVideos = [];
+  const jIn = document.getElementById('pinJourneyInput');
+  if (jIn) jIn.value = journeyPre;
   document.getElementById('pinLatInput').value = Number(lat).toFixed(4);
   document.getElementById('pinLngInput').value = Number(lng).toFixed(4);
   document.getElementById('pinCityInput').value = cityPre;
   document.getElementById('pinCountryInput').value = countryPre;
   document.getElementById('pinDateInput').value = '';
   document.getElementById('pinNoteInput').value = '';
+  const scIn = document.getElementById('pinScoreInput');
+  if (scIn) scIn.value = '';
   renderPendingPhotoThumbs();
   document.getElementById('addPinModal').classList.add('open');
 }
@@ -1206,9 +1400,14 @@ async function handlePhotoUpload(files, addToCurrentPin = false) {
 function saveNewPin() {
   const city = document.getElementById('pinCityInput').value.trim().toUpperCase();
   if (!city) { showToast('SEHIR ADI GIRIN'); return; }
+  const jRaw = document.getElementById('pinJourneyInput') ? document.getElementById('pinJourneyInput').value.trim().toUpperCase() : '';
+  const sameCityCount = (appState.pins || []).filter(p => p.city.toUpperCase() === city).length;
+  const title = jRaw || (sameCityCount > 0 ? `${city} YOLCULUGU #${sameCityCount + 1}` : `${city} YOLCULUGU`);
   const initialThought = document.getElementById('pinNoteInput').value.trim();
+  const initialScore = parseJourneyScore(document.getElementById('pinScoreInput') ? document.getElementById('pinScoreInput').value : '');
   const pin = {
     id: 'pin_' + Date.now(),
+    title,
     city,
     country: (document.getElementById('pinCountryInput').value.trim() || 'DUNYA').toUpperCase(),
     lat: parseFloat(document.getElementById('pinLatInput').value) || 41.0,
@@ -1216,8 +1415,10 @@ function saveNewPin() {
     type: document.getElementById('pinTypeInput').value,
     date: (document.getElementById('pinDateInput').value.trim() || 'YENI ANI').toUpperCase(),
     note: initialThought || '',
-    walleNote: activeRole === 'walle' ? initialThought : '',
-    evaNote:   activeRole === 'eva'   ? initialThought : '',
+    walleNote:  activeRole === 'walle' ? initialThought : '',
+    evaNote:    activeRole === 'eva'   ? initialThought : '',
+    walleScore: activeRole === 'walle' ? initialScore   : null,
+    evaScore:   activeRole === 'eva'   ? initialScore   : null,
     photos: [...pendingPhotos],
     videos: [...pendingVideos]
   };
@@ -1229,12 +1430,13 @@ function saveNewPin() {
   }
   appState.pins.push(pin);
   appState.selectedPinId = pin.id;
+  activeMemoryOpen = true;
   saveState();
   renderMapMarkers();
   renderPinPillsAndDetail();
   if (mapObj) mapObj.flyTo([pin.lat, pin.lng], 10);
   closeModal('addPinModal');
-  showToast(`${pin.city} HARITAYA EKLENDI`);
+  showToast(`${title} (${pin.city}) EKLENDI`);
 }
 
 function deleteSelectedPin() {
@@ -1358,7 +1560,8 @@ function renderNotes() {
   }
   list.forEach(n => {
     const card = document.createElement('div');
-    card.className = `note-item ${n.author === 'BARAN' ? 'from-baran' : 'from-sude'}`;
+    const noteCls = n.author === 'BARAN' ? 'from-baran' : (n.author === 'SISTEM' ? 'from-system' : 'from-sude');
+    card.className = `note-item ${noteCls}`;
     const stamp = [n.date, n.time].filter(Boolean).join(' ');
     card.innerHTML = `
       <div class="note-head">
@@ -2250,6 +2453,8 @@ function saveBridgeSettings() {
   appState.cloudDbUrl = document.getElementById('cfgCloudUrl').value.trim();
   appState.quotaMb = Number(document.getElementById('cfgQuotaMb').value) || 5;
   appState.alertEmail = document.getElementById('cfgAlertEmail').value.trim() || 'sudesenturk6507@gmail.com';
+  const wEmailEl = document.getElementById('cfgWalleEmail');
+  appState.walleEmail = wEmailEl ? wEmailEl.value.trim() : '';
   appState.alertWebhook = document.getElementById('cfgAlertWebhook').value.trim();
   saveState();
   updateRelationshipTimer();
@@ -2308,6 +2513,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('cfgCloudUrl').value = appState.cloudDbUrl || '';
   document.getElementById('cfgQuotaMb').value = String(appState.quotaMb || 5);
   document.getElementById('cfgAlertEmail').value = appState.alertEmail || 'sudesenturk6507@gmail.com';
+  const cfgWalleEl = document.getElementById('cfgWalleEmail');
+  if (cfgWalleEl) cfgWalleEl.value = appState.walleEmail || '';
   document.getElementById('cfgAlertWebhook').value = appState.alertWebhook || '';
   document.getElementById('pwmOut').textContent = appState.robotState.speed;
   document.getElementById('spdRange').value = appState.robotState.speed;
